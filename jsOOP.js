@@ -13,6 +13,9 @@
   if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
   const jwArray = vm.jwArray;
 
+  // Load dogeiscutObject extension if not already loaded
+  if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
+
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -242,12 +245,12 @@
     Type: JSObject,
     Block: {
       blockType: Scratch.BlockType.REPORTER,
-      blockShape: Scratch.BlockShape.PLUS,
+      blockShape: Scratch.BlockShape.SCRAPPED,
       forceOutputType: "JSObject",
       disableMonitor: true
     },
     Argument: {
-      shape: Scratch.BlockShape.PLUS,
+      shape: Scratch.BlockShape.SCRAPPED,
       exemptFromNormalization: true,
       check: ["JSObject"]
     }
@@ -418,15 +421,14 @@
                   exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument
-            },
-            ...JSObjectDescriptor.Block
+            }
           },
 
-          // set property
+          // set property with string/number
           {
-            opcode: 'setProp',
+            opcode: 'setPropString',
             blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to [VALUE]',
+            text: 'set property [PROP] of [INSTANCE] to string [VALUE]',
             arguments: {
               PROP: {
                 type: Scratch.ArgumentType.STRING,
@@ -436,8 +438,64 @@
               INSTANCE: JSObjectDescriptor.Argument,
               VALUE: {
                 type: Scratch.ArgumentType.STRING,
-                defaultValue: '"Bob"',
+                defaultValue: 'Bob'
+              }
+            }
+          },
+
+          // set property with JSObject
+          {
+            opcode: 'setPropJSObject',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set property [PROP] of [INSTANCE] to JSObject [VALUE]',
+            arguments: {
+              PROP: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'data',
                   exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              VALUE: JSObjectDescriptor.Argument
+            }
+          },
+
+          // set property with jwArray
+          {
+            opcode: 'setPropJwArray',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set property [PROP] of [INSTANCE] to jwArray [VALUE]',
+            arguments: {
+              PROP: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'items',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              VALUE: {
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
+              }
+            }
+          },
+
+          // set property with dogeiscutObject
+          {
+            opcode: 'setPropDogeiscutObject',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set property [PROP] of [INSTANCE] to dogeiscutObject [VALUE]',
+            arguments: {
+              PROP: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'config',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              VALUE: vm.dogeiscutObject ? {
+                ...vm.dogeiscutObject.Argument,
+                defaultValue: new vm.dogeiscutObject.Type({})
+              } : {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '{}'
               }
             }
           },
@@ -671,6 +729,34 @@
         return new jwArray.Type(result);
       }
       return result;
+    }
+
+    _convertToNativeValue(value) {
+      // Convert dogeiscutObject to native object
+      if (value && typeof value === 'object' && value.object && value.customId === 'dogeiscutObject') {
+        return value.object;
+      }
+      // Convert jwArray to native array
+      if (value && typeof value === 'object' && value.array && value.customId === 'jwArray') {
+        return value.array;
+      }
+      // Convert JSObject to its inner value
+      if (value instanceof JSObject) {
+        return value.value;
+      }
+      return value;
+    }
+
+    _convertToSafeString(value) {
+      const nativeValue = this._convertToNativeValue(value);
+      if (nativeValue instanceof JSObject) {
+        return nativeValue.toString();
+      }
+      try {
+        return String(nativeValue);
+      } catch (e) {
+        return '[unconvertible]';
+      }
     }
 
     // ===== CONSTANT REPORTER IMPLEMENTATIONS =====
@@ -998,40 +1084,27 @@
       }
     }
 
-    // get property (returns wrapped)
+    // get property (returns safe string)
     getProp({ PROP, INSTANCE }) {
       if (DEBUG) console.dir({ action: 'getProp(entry)', PROP, INSTANCE });
       INSTANCE = JSObject.toType(INSTANCE);
-      const target = INSTANCE.value;
-      if (target && (typeof target === 'object' || typeof target === 'function')) {
-        try {
-          const val = target[PROP];
-          if (DEBUG) console.dir({ action: 'getProp(result)', val });
-          const result = JSObject.toType(val);
-          return this._convertResultToJwArray(result);
-        } catch (err) {
-          if (DEBUG) console.dir({ action: 'getProp(error)', error: err });
-          return new JSObject({ error: String(err) });
-        }
-      } else {
-        // primitive property access
-        try {
-          const val = target[PROP];
-          if (DEBUG) console.dir({ action: 'getProp(primitive)', val });
-          const result = JSObject.toType(val);
-          return this._convertResultToJwArray(result);
-        } catch (err) {
-          if (DEBUG) console.dir({ action: 'getProp(errorPrim)', error: err });
-          return new JSObject({ error: String(err) });
-        }
+      const target = this._convertToNativeValue(INSTANCE.value);
+      
+      try {
+        const val = target[PROP];
+        if (DEBUG) console.dir({ action: 'getProp(result)', val });
+        return this._convertToSafeString(val);
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'getProp(error)', error: err });
+        return `[Error: ${String(err)}]`;
       }
     }
 
-    // set property (command)
-    setProp({ PROP, INSTANCE, VALUE }) {
-      if (DEBUG) console.dir({ action: 'setProp(entry)', PROP, INSTANCE, VALUE });
+    // set property with string/number
+    setPropString({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropString(entry)', PROP, INSTANCE, VALUE });
       INSTANCE = JSObject.toType(INSTANCE);
-      const target = INSTANCE.value;
+      const target = this._convertToNativeValue(INSTANCE.value);
 
       // attempt to parse VALUE (try JSON -> number/boolean/null/array/object), fallback to raw string
       let parsed;
@@ -1055,13 +1128,79 @@
           newObj[PROP] = parsed;
           INSTANCE.value = newObj;
         }
-        if (DEBUG) console.dir({ action: 'setProp(done)', target: INSTANCE.value });
+        if (DEBUG) console.dir({ action: 'setPropString(done)', target: INSTANCE.value });
       } catch (err) {
-        if (DEBUG) console.dir({ action: 'setProp(error)', error: err });
+        if (DEBUG) console.dir({ action: 'setPropString(error)', error: err });
       }
     }
 
-    // JSON stringify any value (if a JSObject, use inner value)
+    // set property with JSObject
+    setPropJSObject({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropJSObject(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropJSObject(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropJSObject(error)', error: err });
+      }
+    }
+
+    // set property with jwArray
+    setPropJwArray({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropJwArray(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropJwArray(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropJwArray(error)', error: err });
+      }
+    }
+
+    // set property with dogeiscutObject
+    setPropDogeiscutObject({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(error)', error: err });
+      }
+    }
+
+    // JSON stringify any value (if JSObject, stringify inner)
     stringify({ VALUE }) {
       // VALUE may be a JSObject wrapper or some other raw. If it's a string in the Scratch sense it may be supplied as string.
       try {
@@ -1094,7 +1233,7 @@
     // helper to get the type name (constructor name / primitive)
     typeName({ INSTANCE }) {
       INSTANCE = JSObject.toType(INSTANCE);
-      const v = INSTANCE.value;
+      const v = this._convertToNativeValue(INSTANCE.value);
       if (v === null) return 'null';
       if (v === undefined) return 'undefined';
       if (typeof v === 'function') return `function ${v.name || '(anonymous)'}`;
