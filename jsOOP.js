@@ -245,12 +245,12 @@
     Type: JSObject,
     Block: {
       blockType: Scratch.BlockType.REPORTER,
-      blockShape: Scratch.BlockShape.SCRAPPED,
+      blockShape: Scratch.BlockShape.BUMPED,
       forceOutputType: "JSObject",
       disableMonitor: true
     },
     Argument: {
-      shape: Scratch.BlockShape.SCRAPPED,
+      shape: Scratch.BlockShape.BUMPED,
       exemptFromNormalization: true,
       check: ["JSObject"]
     }
