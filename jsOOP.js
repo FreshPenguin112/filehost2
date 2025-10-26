@@ -244,7 +244,7 @@
       blockType: Scratch.BlockType.REPORTER,
       blockShape: Scratch.BlockShape.PLUS,
       forceOutputType: "JSObject",
-        disableMonitor: false
+      disableMonitor: true
     },
     Argument: {
       shape: Scratch.BlockShape.PLUS,
@@ -302,6 +302,157 @@
         color2: '#4968d9',
         color3: '#334fb7',
         blocks: [
+          // evaluate arbitrary JS and return its value wrapped as JSObject
+          {
+            opcode: 'evalJS',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'eval JS [CODE]',
+            arguments: {
+              CODE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '({name: "Alice"})',
+                  exemptFromNormalization: true
+              }
+            },
+            ...JSObjectDescriptor.Block
+          },
+
+          // run code without returning (command)
+          {
+            opcode: 'runJS',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'run JS [CODE]',
+            arguments: {
+              CODE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'console.log("hi")',
+                  exemptFromNormalization: true
+              }
+            }
+          },
+
+          // construct new instance: new [CONSTRUCTOR] with args [ARGS]
+          {
+            opcode: 'new',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'new [CONSTRUCTOR] with args [ARGS]',
+            arguments: {
+              CONSTRUCTOR: JSObjectDescriptor.Argument,
+              ARGS: {
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
+              }
+            },
+            ...JSObjectDescriptor.Block
+          },
+
+          // call a method with args (args is jwArray)
+          {
+            opcode: 'callMethod',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'call method [METHOD] on [INSTANCE] with args [ARGS]',
+            arguments: {
+              METHOD: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'toString',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              ARGS: {
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
+              }
+            },
+            // returns JSObject (wrapped)
+            ...JSObjectDescriptor.Block
+          },
+
+          // run method without returning
+          {
+            opcode: 'runMethod',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'run method [METHOD] on [INSTANCE] with args [ARGS]',
+            arguments: {
+              METHOD: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'setName',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              ARGS: {
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
+              }
+            }
+          },
+
+          // get property
+          {
+            opcode: 'getProp',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'get property [PROP] of [INSTANCE]',
+            arguments: {
+              PROP: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'name',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument
+            },
+            ...JSObjectDescriptor.Block
+          },
+
+          // set property
+          {
+            opcode: 'setProp',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set property [PROP] of [INSTANCE] to [VALUE]',
+            arguments: {
+              PROP: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'name',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              VALUE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '"Bob"',
+                  exemptFromNormalization: true
+              }
+            }
+          },
+
+          // stringify any value (if JSObject, stringify inner)
+          {
+            opcode: 'stringify',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'JSON stringify [VALUE]',
+            arguments: {
+              VALUE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '{"a":1}',
+                  exemptFromNormalization: true
+              }
+            }
+          },
+
+          // helper: return type name of instance (for debugging)
+          {
+            opcode: 'typeName',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'type name of [INSTANCE]',
+            arguments: {
+              INSTANCE: JSObjectDescriptor.Argument
+            }
+          },
+
+          // ===== SEPARATOR =====
+          {
+            opcode: 'separator1',
+            blockType: Scratch.BlockType.LABEL,
+            text: 'Common JavaScript Constants'
+          },
+
           // ===== CONSTANT REPORTERS =====
           {
             opcode: 'constantMath',
@@ -459,157 +610,6 @@
             text: 'NaN',
             ...JSObjectDescriptor.Block
           },
-
-          // ===== SEPARATOR =====
-          {
-            opcode: 'separator1',
-            blockType: Scratch.BlockType.LABEL,
-            text: '--- Core Operations ---'
-          },
-
-          // evaluate arbitrary JS and return its value wrapped as JSObject
-          {
-            opcode: 'evalJS',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'eval JS [CODE]',
-            arguments: {
-              CODE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '({name: "Alice"})',
-                  exemptFromNormalization: true
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // run code without returning (command)
-          {
-            opcode: 'runJS',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'run JS [CODE]',
-            arguments: {
-              CODE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'console.log("hi")',
-                  exemptFromNormalization: true
-              }
-            }
-          },
-
-          // construct new instance: new [CONSTRUCTOR] with args [ARGS]
-          {
-            opcode: 'new',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'new [CONSTRUCTOR] with args [ARGS]',
-            arguments: {
-              CONSTRUCTOR: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // call a method with args (args is jwArray)
-          {
-            opcode: 'callMethod',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'call method [METHOD] on [INSTANCE] with args [ARGS]',
-            arguments: {
-              METHOD: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'toString',
-                  exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            },
-            // returns JSObject (wrapped)
-            ...JSObjectDescriptor.Block
-          },
-
-          // run method without returning
-          {
-            opcode: 'runMethod',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'run method [METHOD] on [INSTANCE] with args [ARGS]',
-            arguments: {
-              METHOD: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'setName',
-                  exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            }
-          },
-
-          // get property
-          {
-            opcode: 'getProp',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'get property [PROP] of [INSTANCE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'name',
-                  exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // set property
-          {
-            opcode: 'setProp',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to [VALUE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'name',
-                  exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              VALUE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '"Bob"',
-                  exemptFromNormalization: true
-              }
-            }
-          },
-
-          // stringify any value (if JSObject, stringify inner)
-          {
-            opcode: 'stringify',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'JSON stringify [VALUE]',
-            arguments: {
-              VALUE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '{"a":1}',
-                  exemptFromNormalization: true
-              }
-            }
-          },
-
-          // helper: return type name of instance (for debugging)
-          {
-            opcode: 'typeName',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'type name of [INSTANCE]',
-            arguments: {
-              INSTANCE: JSObjectDescriptor.Argument
-            }
-          }
         ]
       };
     }
