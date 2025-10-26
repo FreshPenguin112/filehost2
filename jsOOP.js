@@ -529,6 +529,12 @@
             ...JSObjectDescriptor.Block
           },
           {
+            opcode: 'constantAsyncFunction',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'AsyncFunction',
+            ...JSObjectDescriptor.Block
+          },
+          {
             opcode: 'constantDate',
             blockType: Scratch.BlockType.REPORTER,
             text: 'Date',
@@ -702,6 +708,10 @@
 
     constantFunction() {
       return new JSObject(Function);
+    }
+    
+    constantAsyncFunction() {
+      return new JSObject(Object.getPrototypeOf(async function(){}).constructor);
     }
 
     constantDate() {
