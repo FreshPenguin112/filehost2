@@ -7,7 +7,7 @@
   }
 
   const vm = Scratch.vm;
-  const DEBUG = true; // set to false to silence console.dir traces
+  const DEBUG = false;
 
   // Load jwArray extension if not already loaded
   if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
@@ -364,6 +364,26 @@
               }
             },
             // returns JSObject (wrapped)
+            ...JSObjectDescriptor.Block
+          },
+
+          // await call method (reporter) - waits if result is a Promise/thenable
+          {
+            opcode: 'awaitCallMethod',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'await call method [METHOD] on [INSTANCE] with args [ARGS]',
+            arguments: {
+              METHOD: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'then',
+                  exemptFromNormalization: true
+              },
+              INSTANCE: JSObjectDescriptor.Argument,
+              ARGS: {
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
+              }
+            },
             ...JSObjectDescriptor.Block
           },
 
@@ -867,6 +887,66 @@
         return this._convertResultToJwArray(wrappedResult);
       } catch (err) {
         if (DEBUG) console.dir({ action: 'callMethod(error)', error: err });
+        return new JSObject({ error: String(err) });
+      }
+    }
+
+    // await call method (reporter) - waits if result is a Promise/thenable
+    async awaitCallMethod({ METHOD, INSTANCE, ARGS }) {
+      if (DEBUG) console.dir({ action: 'awaitCallMethod(entry)', METHOD, INSTANCE, ARGS });
+
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = INSTANCE.value;
+      const args = this._convertJwArrayToArgs(ARGS);
+
+      // handle primitive targets by checking their prototype
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+        const primProto = Object.getPrototypeOf(target);
+        const fnPrim = primProto && primProto[METHOD];
+        if (typeof fnPrim === 'function') {
+          try {
+            const res = fnPrim.apply(target, args);
+            if (res && typeof res.then === 'function') {
+              const awaited = await res;
+              if (DEBUG) console.dir({ action: 'awaitCallMethod(resultPrimitiveAwaited)', awaited });
+              const wrappedResult = JSObject.toType(awaited);
+              return this._convertResultToJwArray(wrappedResult);
+            }
+            if (DEBUG) console.dir({ action: 'awaitCallMethod(resultPrimitive)', res });
+            const wrappedResult = JSObject.toType(res);
+            return this._convertResultToJwArray(wrappedResult);
+          } catch (err) {
+            if (DEBUG) console.dir({ action: 'awaitCallMethod(errorPrimitive)', error: err });
+            return new JSObject({ error: String(err) });
+          }
+        }
+        return new JSObject({ error: `No method ${METHOD} on target` });
+      }
+
+      // find method on object (own property first, then prototype)
+      let fn = target[METHOD];
+      if (typeof fn !== 'function') {
+        const proto = Object.getPrototypeOf(target);
+        fn = proto && proto[METHOD];
+      }
+      if (typeof fn !== 'function') {
+        return new JSObject({ error: `No method ${METHOD}` });
+      }
+
+      try {
+        const result = fn.apply(target, args);
+        if (result && typeof result.then === 'function') {
+          // await if it's thenable
+          const awaited = await result;
+          if (DEBUG) console.dir({ action: 'awaitCallMethod(awaited)', awaited });
+          const wrappedResult = JSObject.toType(awaited);
+          return this._convertResultToJwArray(wrappedResult);
+        }
+        if (DEBUG) console.dir({ action: 'awaitCallMethod(result)', result });
+        const wrappedResult = JSObject.toType(result);
+        return this._convertResultToJwArray(wrappedResult);
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'awaitCallMethod(error)', error: err });
         return new JSObject({ error: String(err) });
       }
     }
