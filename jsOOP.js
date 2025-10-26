@@ -302,6 +302,171 @@
         color2: '#4968d9',
         color3: '#334fb7',
         blocks: [
+          // ===== CONSTANT REPORTERS =====
+          {
+            opcode: 'constantMath',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Math',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantNull',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'null',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantUndefined',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'undefined',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantObject',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Object',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantArray',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Array',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantString',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'String',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantNumber',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Number',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantBoolean',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Boolean',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantFunction',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Function',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantDate',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Date',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantRegExp',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'RegExp',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantJSON',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'JSON',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantPromise',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Promise',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantError',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Error',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantMap',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Map',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantSet',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Set',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantWeakMap',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'WeakMap',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantWeakSet',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'WeakSet',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantSymbol',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Symbol',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantProxy',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Proxy',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantReflect',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Reflect',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantIntl',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Intl',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantConsole',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'console',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantGlobalThis',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'globalThis',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantInfinity',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'Infinity',
+            ...JSObjectDescriptor.Block
+          },
+          {
+            opcode: 'constantNaN',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'NaN',
+            ...JSObjectDescriptor.Block
+          },
+
+          // ===== SEPARATOR =====
+          {
+            opcode: 'separator1',
+            blockType: Scratch.BlockType.LABEL,
+            text: '--- Core Operations ---'
+          },
+
           // evaluate arbitrary JS and return its value wrapped as JSObject
           {
             opcode: 'evalJS',
@@ -482,6 +647,113 @@
       return result;
     }
 
+    // ===== CONSTANT REPORTER IMPLEMENTATIONS =====
+    constantMath() {
+      return new JSObject(Math);
+    }
+
+    constantNull() {
+      return new JSObject(null);
+    }
+
+    constantUndefined() {
+      return new JSObject(undefined);
+    }
+
+    constantObject() {
+      return new JSObject(Object);
+    }
+
+    constantArray() {
+      return new JSObject(Array);
+    }
+
+    constantString() {
+      return new JSObject(String);
+    }
+
+    constantNumber() {
+      return new JSObject(Number);
+    }
+
+    constantBoolean() {
+      return new JSObject(Boolean);
+    }
+
+    constantFunction() {
+      return new JSObject(Function);
+    }
+
+    constantDate() {
+      return new JSObject(Date);
+    }
+
+    constantRegExp() {
+      return new JSObject(RegExp);
+    }
+
+    constantJSON() {
+      return new JSObject(JSON);
+    }
+
+    constantPromise() {
+      return new JSObject(Promise);
+    }
+
+    constantError() {
+      return new JSObject(Error);
+    }
+
+    constantMap() {
+      return new JSObject(Map);
+    }
+
+    constantSet() {
+      return new JSObject(Set);
+    }
+
+    constantWeakMap() {
+      return new JSObject(WeakMap);
+    }
+
+    constantWeakSet() {
+      return new JSObject(WeakSet);
+    }
+
+    constantSymbol() {
+      return new JSObject(Symbol);
+    }
+
+    constantProxy() {
+      return new JSObject(Proxy);
+    }
+
+    constantReflect() {
+      return new JSObject(Reflect);
+    }
+
+    constantIntl() {
+      return new JSObject(Intl);
+    }
+
+    constantConsole() {
+      return new JSObject(console);
+    }
+
+    constantGlobalThis() {
+      return new JSObject(globalThis);
+    }
+
+    constantInfinity() {
+      return new JSObject(Infinity);
+    }
+
+    constantNaN() {
+      return new JSObject(NaN);
+    }
+
+    // ===== EXISTING BLOCK IMPLEMENTATIONS =====
+    
     // evaluate code and return wrapped result
     evalJS({ CODE }) {
       if (DEBUG) console.dir({ action: 'evalJS(entry)', CODE });
