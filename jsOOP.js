@@ -9,6 +9,10 @@
   const vm = Scratch.vm;
   const DEBUG = true; // set to false to silence console.dir traces
 
+  // Load jwArray extension if not already loaded
+  if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
+  const jwArray = vm.jwArray;
+
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -335,15 +339,14 @@
             arguments: {
               CONSTRUCTOR: JSObjectDescriptor.Argument,
               ARGS: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '[]',
-                  exemptFromNormalization: true
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
               }
             },
             ...JSObjectDescriptor.Block
           },
 
-          // call a method with args (args is stringified array)
+          // call a method with args (args is jwArray)
           {
             opcode: 'callMethod',
             blockType: Scratch.BlockType.REPORTER,
@@ -356,9 +359,8 @@
               },
               INSTANCE: JSObjectDescriptor.Argument,
               ARGS: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '[]',
-                  exemptFromNormalization: true
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
               }
             },
             // returns JSObject (wrapped)
@@ -378,9 +380,8 @@
               },
               INSTANCE: JSObjectDescriptor.Argument,
               ARGS: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '[]',
-                  exemptFromNormalization: true
+                ...jwArray.Argument,
+                defaultValue: new jwArray.Type([])
               }
             }
           },
@@ -460,35 +461,25 @@
       return new JSObject(x);
     }
 
-    _parseArgsString(argsStr) {
-      if (typeof argsStr !== 'string') return [];
-      try {
-        const parsed = JSON.parse(argsStr);
-        if (Array.isArray(parsed)) return parsed;
-        // if it's single value, return array with it
-        return [parsed];
-      } catch (e) {
-        // naive fallback: try to split by commas (best-effort)
-        try {
-          // remove surrounding brackets if present
-          const trimmed = argsStr.trim();
-          const inner = (trimmed.startsWith('[') && trimmed.endsWith(']')) ? trimmed.slice(1, -1) : trimmed;
-          if (inner.trim() === '') return [];
-          return inner.split(',').map(s => {
-            const t = s.trim();
-            // try to parse primitives
-            if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-              return t.slice(1, -1);
-            }
-            if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
-            if (t === 'true') return true;
-            if (t === 'false') return false;
-            try { return JSON.parse(t); } catch (_) { return t; }
-          });
-        } catch (_) {
-          return [];
-        }
+    _convertJwArrayToArgs(jwArrayObj) {
+      if (jwArrayObj instanceof jwArray.Type) {
+        // Convert jwArray to regular array and unwrap any JSObjects
+        return jwArrayObj.array.map(item => {
+          if (item instanceof JSObject) {
+            return item.value;
+          }
+          return item;
+        });
       }
+      return [];
+    }
+
+    _convertResultToJwArray(result) {
+      // Convert Array results to jwArray for consistency
+      if (Array.isArray(result) && !(result instanceof jwArray.Type)) {
+        return new jwArray.Type(result);
+      }
+      return result;
     }
 
     // evaluate code and return wrapped result
@@ -529,14 +520,15 @@
       try {
         const ctorWrap = JSObject.toType(CONSTRUCTOR);
         const ctor = ctorWrap.value;
-        const args = this._parseArgsString(ARGS);
+        const args = this._convertJwArrayToArgs(ARGS);
         if (typeof ctor !== 'function') {
           return new JSObject({ error: 'Constructor is not a function' });
         }
         try {
           const instance = Reflect.construct(ctor, args);
           if (DEBUG) console.dir({ action: 'new(result)', instance });
-          return JSObject.toType(instance);
+          const result = JSObject.toType(instance);
+          return this._convertResultToJwArray(result);
         } catch (err) {
           if (DEBUG) console.dir({ action: 'new(error)', error: err });
           return new JSObject({ error: String(err) });
@@ -554,8 +546,8 @@
       INSTANCE = JSObject.toType(INSTANCE);
       const target = INSTANCE.value;
 
-      // parse args from stringified array
-      const args = this._parseArgsString(ARGS);
+      // convert jwArray args to regular array
+      const args = this._convertJwArrayToArgs(ARGS);
 
       if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
         // for primitive targets, try to call methods only if they exist on the primitive's prototype
@@ -565,7 +557,8 @@
           try {
             const result = fnPrim.apply(target, args);
             if (DEBUG) console.dir({ action: 'callMethod(resultPrimitive)', result });
-            return JSObject.toType(result);
+            const wrappedResult = JSObject.toType(result);
+            return this._convertResultToJwArray(wrappedResult);
           } catch (err) {
             if (DEBUG) console.dir({ action: 'callMethod(errorPrimitive)', error: err });
             return new JSObject({ error: String(err) });
@@ -584,7 +577,8 @@
           try {
             const result = fnProto.apply(target, args);
             if (DEBUG) console.dir({ action: 'callMethod(resultProto)', result });
-            return JSObject.toType(result);
+            const wrappedResult = JSObject.toType(result);
+            return this._convertResultToJwArray(wrappedResult);
           } catch (err) {
             if (DEBUG) console.dir({ action: 'callMethod(errorProto)', error: err });
             return new JSObject({ error: String(err) });
@@ -597,7 +591,8 @@
       try {
         const result = fn.apply(target, args);
         if (DEBUG) console.dir({ action: 'callMethod(result)', result });
-        return JSObject.toType(result);
+        const wrappedResult = JSObject.toType(result);
+        return this._convertResultToJwArray(wrappedResult);
       } catch (err) {
         if (DEBUG) console.dir({ action: 'callMethod(error)', error: err });
         return new JSObject({ error: String(err) });
@@ -609,7 +604,7 @@
       if (DEBUG) console.dir({ action: 'runMethod(entry)', METHOD, INSTANCE, ARGS });
       INSTANCE = JSObject.toType(INSTANCE);
       const target = INSTANCE.value;
-      const args = this._parseArgsString(ARGS);
+      const args = this._convertJwArrayToArgs(ARGS);
 
       if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
         const primProto = Object.getPrototypeOf(target);
@@ -650,7 +645,8 @@
         try {
           const val = target[PROP];
           if (DEBUG) console.dir({ action: 'getProp(result)', val });
-          return JSObject.toType(val);
+          const result = JSObject.toType(val);
+          return this._convertResultToJwArray(result);
         } catch (err) {
           if (DEBUG) console.dir({ action: 'getProp(error)', error: err });
           return new JSObject({ error: String(err) });
@@ -660,7 +656,8 @@
         try {
           const val = target[PROP];
           if (DEBUG) console.dir({ action: 'getProp(primitive)', val });
-          return JSObject.toType(val);
+          const result = JSObject.toType(val);
+          return this._convertResultToJwArray(result);
         } catch (err) {
           if (DEBUG) console.dir({ action: 'getProp(errorPrim)', error: err });
           return new JSObject({ error: String(err) });
