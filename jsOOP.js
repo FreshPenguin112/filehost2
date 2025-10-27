@@ -16,6 +16,8 @@
   // Load dogeiscutObject extension if not already loaded
   if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
+  if (!vm.runtime.ext_SPjavascriptV2) vm.extensionManager.loadExtensionIdSync('SPjavascriptV2');
+  
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -312,8 +314,8 @@
             text: 'eval JS [CODE]',
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '({name: "Alice"})',
+                type: ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
+                defaultValue: 'return {name: "Alice"}',
                   exemptFromNormalization: true
               }
             },
@@ -327,7 +329,7 @@
             text: 'run JS [CODE]',
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.STRING,
+                type: ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
                 defaultValue: 'console.log("hi")',
                   exemptFromNormalization: true
               }
