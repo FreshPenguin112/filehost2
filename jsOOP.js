@@ -16,8 +16,11 @@
   // Load dogeiscutObject extension if not already loaded
   if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
-  if (!vm.runtime.ext_SPjavascriptV2) vm.extensionManager.loadExtensionIdSync('SPjavascriptV2');
-  
+  // Check if ScratchBlocks is available
+  const isScratchBlocksReady = typeof ScratchBlocks === "object";
+  const codeEditorHandlers = new Map();
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -40,6 +43,155 @@
       return value;
     }, 2);
   }
+
+  // Initialize code editor if ScratchBlocks is available
+  function initBlockTools() {
+    if (!isScratchBlocksReady) return;
+
+    window.addEventListener("message", (e) => {
+      if (e.data?.type === "code-change") {
+        const handler = codeEditorHandlers.get(e.data.id);
+        if (handler) handler(e.data.value);
+      }
+    });
+
+    const recyclableDiv = document.createElement("div");
+    recyclableDiv.setAttribute("style", `display: flex; justify-content: center; padding-top: 10px; width: 250px; height: 200px;`);
+
+    const fakeDiv = document.createElement("div");
+    fakeDiv.setAttribute("style", "background: #272822; border-radius: 10px; border: none; width: 100%; height: calc(100% - 20px);");
+    recyclableDiv.appendChild(fakeDiv);
+
+    ScratchBlocks.FieldCustom.registerInput(
+      "jsoop-codeEditor",
+      recyclableDiv,
+      (field) => {
+        /* on init */
+        const inputObject = field.inputSource;
+        const input = inputObject.firstChild;
+        const srcBlock = field.sourceBlock_;
+        const parent = srcBlock.parentBlock_;
+        const dragCheck = parent.isInFlyout || srcBlock.svgGroup_.classList.contains("blocklyDragging") ? "none" : "all";
+
+        inputObject.setAttribute("pointer-events", "none");
+        input.style.height = "210px";
+        const iframe = document.createElement("iframe");
+        iframe.setAttribute("style", `pointer-events: ${dragCheck}; background: #272822; border-radius: 10px; border: none; ${isSafari ? "" : "width: 100%;"} height: calc(100% - 20px);`);
+        iframe.setAttribute("sandbox", "allow-scripts");
+
+        const html = `
+<!DOCTYPE html>
+<html><head>
+  <style>html, body, #editor {background: #272822; margin: 0; padding: 0; height: 100%; width: 100%;}</style>
+</head>
+<body>
+  <div id="editor"></div>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/ace.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/mode-javascript.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/theme-monokai.js"></script>
+  <script>
+    window.addEventListener("message", function(e) {
+      const editor = ace.edit("editor");
+      editor.setOptions({
+        fontSize: "15px", showPrintMargin: false,
+        highlightActiveLine: true, useWorker: false
+      });
+
+      editor.session.setMode("ace/mode/javascript");
+      editor.setTheme("ace/theme/monokai");
+      editor.setValue(e.data.value);
+      editor.session.on("change", () => parent.postMessage({
+        type: "code-change", id: "${srcBlock.id}", value: editor.getValue()
+      }, "*"));
+    }, { once: true });
+  </script>
+</body>
+</html>`;
+        iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+        input.replaceChild(iframe, input.firstChild);
+        iframe.onload = () => {
+          let value = field.getValue();
+          if (value === "needsInit") {
+            const outerType = srcBlock.parentBlock_.type;
+            if (outerType.endsWith("evalJSEditor")) value = 'return {name: "Alice"}';
+            else if (outerType.endsWith("runJSEditor")) value = 'console.log("hi")';
+            field.setValue(value);
+          }
+
+          iframe.contentWindow.postMessage({ value }, "*");
+        };
+
+        // listen for code updates
+        codeEditorHandlers.set(srcBlock.id, (value) => field.setValue(value));
+
+        const resizeHandle = document.createElement("div");
+        resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
+        input.appendChild(resizeHandle);
+
+        let isResizing = false;
+        let startX, startY, startW, startH;
+        resizeHandle.addEventListener("mousedown", (e) => {
+          if (parent.isInFlyout) return;
+          e.preventDefault();
+          isResizing = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          startW = input.offsetWidth;
+          startH = input.offsetHeight;
+          ScratchBlocks.mainWorkspace.allowDragging = false;
+          parent.setMovable(false);
+
+          function onMouseMove(ev) {
+            if (!isResizing) return;
+            iframe.style.pointerEvents = "none";
+            const newW = Math.max(150, startW + (ev.clientX - startX));
+            const newH = Math.max(100, startH + (ev.clientY - startY));
+            input.style.width = `${newW}px`;
+            input.style.height = `${newH}px`;
+            resizeHandle.style.left = `${newW - 20}px`;
+            resizeHandle.style.top = `${newH - 40}px`;
+            inputObject.setAttribute("width", newW);
+            inputObject.setAttribute("height", newH);
+            field.size_.width = newW;
+            field.size_.height = newH - 10;
+            if (srcBlock?.render) srcBlock.render();
+          }
+
+          function onMouseUp() {
+            isResizing = false;
+            ScratchBlocks.mainWorkspace.allowDragging = true;
+            parent.setMovable(true);
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          }
+
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+        });
+
+        // monkey patch this function since MutationObservers will lag
+        // this patch allows dragging blocks to not act weird with mouse touching
+        const ogSetAtt = parent.svgGroup_.setAttribute;
+        parent.svgGroup_.setAttribute = (...args) => {
+          if (args[0] === "class") {
+            if (parent.isInFlyout || args[1].includes("blocklyDragging")) {
+              iframe.style.pointerEvents = "none";
+              resizeHandle.style.pointerEvents = "none";
+            } else {
+              iframe.style.pointerEvents = "all";
+              resizeHandle.style.pointerEvents = "all";
+            }
+          }
+          ogSetAtt.call(parent.svgGroup_, ...args);
+        }
+      },
+      () => { /* no work needs to be done here */ },
+      () => { /* no work needs to be done here */ }
+    );
+  }
+
+  // Initialize block tools if ScratchBlocks is ready
+  if (isScratchBlocksReady) initBlockTools();
 
   // -------------------------
   // JSObject wrapper (custom type)
@@ -297,9 +449,21 @@
           }
         );
       }
+
+      // Listen for workspace updates to clear code editor handlers
+      if (vm && vm.runtime) {
+        vm.runtime.on('workspaceUpdate', () => {
+          codeEditorHandlers.clear();
+          if (!isScratchBlocksReady && typeof ScratchBlocks === "object") {
+            initBlockTools();
+          }
+        });
+      }
     }
 
     getInfo() {
+      const useCodeEditor = isScratchBlocksReady && !isSafari;
+
       return {
         id: 'jsoop',
         name: 'JS OOP Bridge',
@@ -307,31 +471,75 @@
         color2: '#4968d9',
         color3: '#334fb7',
         blocks: [
-          // evaluate arbitrary JS and return its value wrapped as JSObject
+          // Code input block (hidden, used by fill-in)
           {
-            opcode: 'evalJS',
+            opcode: 'codeInput',
             blockType: Scratch.BlockType.REPORTER,
-            text: 'eval JS [CODE]',
+            text: '[CODE]',
+            hideFromPalette: true,
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
-                defaultValue: 'return {name: "Alice"}',
-                  exemptFromNormalization: true
+                type: Scratch.ArgumentType.CUSTOM,
+                customId: "jsoop-codeEditor",
+                defaultValue: "needsInit"
+              }
+            }
+          },
+
+          // evaluate arbitrary JS with code editor
+          {
+            opcode: 'evalJSEditor',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'eval JS [CODE]',
+            hideFromPalette: !useCodeEditor,
+            arguments: {
+              CODE: {
+                fillIn: 'codeInput'
               }
             },
             ...JSObjectDescriptor.Block
           },
 
-          // run code without returning (command)
+          // run code without returning with code editor
+          {
+            opcode: 'runJSEditor',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'run JS [CODE]',
+            hideFromPalette: !useCodeEditor,
+            arguments: {
+              CODE: {
+                fillIn: 'codeInput'
+              }
+            }
+          },
+
+          // evaluate arbitrary JS with string input (fallback)
+          {
+            opcode: 'evalJS',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'eval JS [CODE]',
+            hideFromPalette: useCodeEditor,
+            arguments: {
+              CODE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'return {name: "Alice"}',
+                exemptFromNormalization: true
+              }
+            },
+            ...JSObjectDescriptor.Block
+          },
+
+          // run code without returning with string input (fallback)
           {
             opcode: 'runJS',
             blockType: Scratch.BlockType.COMMAND,
             text: 'run JS [CODE]',
+            hideFromPalette: useCodeEditor,
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
+                type: Scratch.ArgumentType.STRING,
                 defaultValue: 'console.log("hi")',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               }
             }
           },
@@ -360,7 +568,7 @@
               METHOD: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'toString',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               ARGS: {
@@ -381,7 +589,7 @@
               METHOD: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'then',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               ARGS: {
@@ -401,7 +609,7 @@
               METHOD: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'setName',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               ARGS: {
@@ -420,7 +628,7 @@
               PROP: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'name',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument
             }
@@ -435,7 +643,7 @@
               PROP: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'name',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               VALUE: {
@@ -454,7 +662,7 @@
               PROP: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'data',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               VALUE: JSObjectDescriptor.Argument
@@ -470,7 +678,7 @@
               PROP: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'items',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               VALUE: {
@@ -489,7 +697,7 @@
               PROP: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: 'config',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               },
               INSTANCE: JSObjectDescriptor.Argument,
               VALUE: vm.dogeiscutObject ? {
@@ -511,7 +719,7 @@
               VALUE: {
                 type: Scratch.ArgumentType.STRING,
                 defaultValue: '{"a":1}',
-                  exemptFromNormalization: true
+                exemptFromNormalization: true
               }
             }
           },
@@ -872,6 +1080,21 @@
 
     // ===== EXISTING BLOCK IMPLEMENTATIONS =====
     
+    // Code input handler
+    codeInput(args) {
+      return args.CODE;
+    }
+
+    // evaluate code and return wrapped result (with code editor)
+    evalJSEditor({ CODE }) {
+      return this.evalJS({ CODE });
+    }
+
+    // run code without returning (with code editor)
+    runJSEditor({ CODE }) {
+      return this.runJS({ CODE });
+    }
+
     // evaluate code and return wrapped result
     evalJS({ CODE }) {
       if (DEBUG) console.dir({ action: 'evalJS(entry)', CODE });
