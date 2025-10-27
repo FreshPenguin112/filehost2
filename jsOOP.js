@@ -881,7 +881,7 @@
         name: 'JS OOP Bridge',
         color1: '#6b8cff',
         color2: '#6b8cff',
-        color3: '#6b8cff',
+        color3: '#334fb7',
         blocks: blocks
       };
     }
