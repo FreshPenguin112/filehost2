@@ -329,7 +329,7 @@
             text: 'run JS [CODE]',
             arguments: {
               CODE: {
-                type: Scratch. ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
+                type: Scratch.ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
                 defaultValue: 'console.log("hi")',
                   exemptFromNormalization: true
               }
