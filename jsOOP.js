@@ -11,9 +11,7 @@
     if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
     const jwArray = vm.jwArray;
 
-    console.log("Loading objects extension...");
-    await vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
-    console.log("Loaded!");
+    if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
     let isScratchBlocksReady = typeof ScratchBlocks === "object";
     const codeEditorHandlers = new Map();
@@ -611,7 +609,37 @@
                         INSTANCE: JSObjectDescriptor.Argument
                     }
                 },
+                {
+                    opcode: 'stringify',
+                    blockType: Scratch.BlockType.REPORTER,
+                    text: 'JSON stringify [VALUE]',
+                    arguments: {
+                        VALUE: {
+                            type: Scratch.ArgumentType.STRING,
+                            defaultValue: '{"a":1}',
+                            exemptFromNormalization: true
+                        }
+                    }
+                },
 
+                {
+                    opcode: 'typeName',
+                    blockType: Scratch.BlockType.REPORTER,
+                    text: 'type name of [INSTANCE]',
+                    arguments: {
+                        INSTANCE: JSObjectDescriptor.Argument
+                    }
+                },
+                {
+                    opcode: 'separator2',
+                    blockType: Scratch.BlockType.LABEL,
+                    text: 'Property Changing Blocks'
+                },
+                {
+                    opcode: "propSettingNotice",
+                    blockType: Scratch.BlockType.BUTTON,
+                    text: "Notice, read me!"
+                },
                 {
                     opcode: 'setPropString',
                     blockType: Scratch.BlockType.COMMAND,
@@ -676,36 +704,12 @@
                         INSTANCE: JSObjectDescriptor.Argument,
                         VALUE: vm.dogeiscutObject ? {
                             ...vm.dogeiscutObject.Argument,
-                            defaultValue: new vm.dogeiscutObject.Type({})
                         } : {
-                            type: Scratch.ArgumentType.STRING,
-                            defaultValue: '{}'
+                            ...({shape: 5, exemptFromNormalization: true, check: ["Object"]})
                         }
                     }
                 },
-
-                {
-                    opcode: 'stringify',
-                    blockType: Scratch.BlockType.REPORTER,
-                    text: 'JSON stringify [VALUE]',
-                    arguments: {
-                        VALUE: {
-                            type: Scratch.ArgumentType.STRING,
-                            defaultValue: '{"a":1}',
-                            exemptFromNormalization: true
-                        }
-                    }
-                },
-
-                {
-                    opcode: 'typeName',
-                    blockType: Scratch.BlockType.REPORTER,
-                    text: 'type name of [INSTANCE]',
-                    arguments: {
-                        INSTANCE: JSObjectDescriptor.Argument
-                    }
-                },
-
+                
                 {
                     opcode: 'separator1',
                     blockType: Scratch.BlockType.LABEL,
@@ -942,6 +946,10 @@
             } catch (e) {
                 return '[unconvertible]';
             }
+        }
+
+        propSettingNotice() {
+            alert("These property settings block are to be used with JavaScript Objects stored in variables. They modify them in place!");
         }
 
         codeInput(args) {
