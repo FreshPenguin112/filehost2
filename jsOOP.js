@@ -616,25 +616,7 @@
                         }
                     }
                 },
-
-
-                {
-                    opcode: 'awaitRunMethod',
-                    blockType: Scratch.BlockType.COMMAND,
-                    text: 'await run method [METHOD] on [INSTANCE] with args [ARGS]',
-                    arguments: {
-                        METHOD: {
-                            type: Scratch.ArgumentType.STRING,
-                            defaultValue: 'then',
-                            exemptFromNormalization: true
-                        },
-                        INSTANCE: JSObjectDescriptor.Argument,
-                        ARGS: {
-                            ...jwArray.Argument,
-                            defaultValue: new jwArray.Type([])
-                        }
-                    }
-                },
+                
                 {
                     opcode: 'callFunction',
                     blockType: Scratch.BlockType.REPORTER,
