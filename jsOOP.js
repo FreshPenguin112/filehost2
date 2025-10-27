@@ -16,7 +16,7 @@
   // Load dogeiscutObject extension if not already loaded
   if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
-  // ACE Editor implementation (copied from reference with SPjavascriptV2 -> jsoop)
+  // ACE Editor implementation (EXACT copy from reference with SPjavascriptV2 -> jsoop)
   let isScratchBlocksReady = typeof ScratchBlocks === "object";
   const codeEditorHandlers = new Map();
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -44,23 +44,11 @@
         const inputObject = field.inputSource;
         const input = inputObject.firstChild;
         const srcBlock = field.sourceBlock_;
-        
-        // Safe parent detection with null checks
-        const parent = srcBlock && srcBlock.parentBlock_ ? srcBlock.parentBlock_ : null;
-        const isInFlyout = parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false;
-        const isDragging = srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && 
-                          typeof srcBlock.svgGroup_.classList.contains === 'function' ? 
-                          srcBlock.svgGroup_.classList.contains("blocklyDragging") : false;
-        
-        const dragCheck = isInFlyout || isDragging ? "none" : "all";
+        const parent = srcBlock.parentBlock_;
+        const dragCheck = parent.isInFlyout || srcBlock.svgGroup_.classList.contains("blocklyDragging") ? "none" : "all";
 
-        if (inputObject && inputObject.setAttribute) {
-          inputObject.setAttribute("pointer-events", "none");
-        }
-        if (input) {
-          input.style.height = "210px";
-        }
-        
+        inputObject.setAttribute("pointer-events", "none");
+        input.style.height = "210px";
         const iframe = document.createElement("iframe");
         iframe.setAttribute("style", `pointer-events: ${dragCheck}; background: #272822; border-radius: 10px; border: none; ${isSafari ? "" : "width: 100%;"} height: calc(100% - 20px);`);
         iframe.setAttribute("sandbox", "allow-scripts");
@@ -94,129 +82,81 @@
 </body>
 </html>`;
         iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-        
-        if (input && input.firstChild) {
-          input.replaceChild(iframe, input.firstChild);
-        } else if (input) {
-          input.appendChild(iframe);
-        }
-        
+        input.replaceChild(iframe, input.firstChild);
         iframe.onload = () => {
           let value = field.getValue();
-          if (value === "needsInit-1@#4%^7*(0") {
-            // Set default code based on block type
-            value = 'return {name: "Alice"}';
+          if (value === "jsoop-init-xyz789@!") {
+            const outerType = srcBlock.parentBlock_.type;
+            if (outerType.endsWith("evalJS")) value = `return {name: "Alice"}`;
+            else if (outerType.endsWith("runJS")) value = `console.log("Hello!")`;
             field.setValue(value);
           }
 
-          if (iframe.contentWindow) {
-            iframe.contentWindow.postMessage({ value }, "*");
-          }
+          iframe.contentWindow.postMessage({ value }, "*");
         };
 
         // listen for code updates
-        if (srcBlock && srcBlock.id) {
-          codeEditorHandlers.set(srcBlock.id, (value) => {
-            try {
-              field.setValue(value);
-            } catch (e) {
-              // Ignore setValue errors
-            }
-          });
-        }
+        codeEditorHandlers.set(srcBlock.id, (value) => field.setValue(value));
 
         const resizeHandle = document.createElement("div");
         resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
-        
-        if (input) {
-          input.appendChild(resizeHandle);
-        }
+        input.appendChild(resizeHandle);
 
         let isResizing = false;
         let startX, startY, startW, startH;
-        
-        if (resizeHandle.addEventListener) {
-          resizeHandle.addEventListener("mousedown", (e) => {
-            if (isInFlyout) return;
-            e.preventDefault();
-            isResizing = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            startW = input ? input.offsetWidth : 250;
-            startH = input ? input.offsetHeight : 200;
-            
-            if (ScratchBlocks && ScratchBlocks.mainWorkspace) {
-              ScratchBlocks.mainWorkspace.allowDragging = false;
-            }
-            if (parent && typeof parent.setMovable === 'function') {
-              parent.setMovable(false);
-            }
+        resizeHandle.addEventListener("mousedown", (e) => {
+          if (parent.isInFlyout) return;
+          e.preventDefault();
+          isResizing = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          startW = input.offsetWidth;
+          startH = input.offsetHeight;
+          ScratchBlocks.mainWorkspace.allowDragging = false;
+          parent.setMovable(false);
 
-            function onMouseMove(ev) {
-              if (!isResizing) return;
-              if (iframe) iframe.style.pointerEvents = "none";
-              const newW = Math.max(150, startW + (ev.clientX - startX));
-              const newH = Math.max(100, startH + (ev.clientY - startY));
-              
-              if (input) {
-                input.style.width = `${newW}px`;
-                input.style.height = `${newH}px`;
-              }
-              
-              resizeHandle.style.left = `${newW - 20}px`;
-              resizeHandle.style.top = `${newH - 40}px`;
-              
-              if (inputObject && inputObject.setAttribute) {
-                inputObject.setAttribute("width", newW);
-                inputObject.setAttribute("height", newH);
-              }
-              
-              if (field.size_) {
-                field.size_.width = newW;
-                field.size_.height = newH - 10;
-              }
-              
-              if (srcBlock && typeof srcBlock.render === 'function') {
-                srcBlock.render();
-              }
-            }
+          function onMouseMove(ev) {
+            if (!isResizing) return;
+            iframe.style.pointerEvents = "none";
+            const newW = Math.max(150, startW + (ev.clientX - startX));
+            const newH = Math.max(100, startH + (ev.clientY - startY));
+            input.style.width = `${newW}px`;
+            input.style.height = `${newH}px`;
+            resizeHandle.style.left = `${newW - 20}px`;
+            resizeHandle.style.top = `${newH - 40}px`;
+            inputObject.setAttribute("width", newW);
+            inputObject.setAttribute("height", newH);
+            field.size_.width = newW;
+            field.size_.height = newH - 10;
+            if (srcBlock?.render) srcBlock.render();
+          }
 
-            function onMouseUp() {
-              isResizing = false;
-              if (ScratchBlocks && ScratchBlocks.mainWorkspace) {
-                ScratchBlocks.mainWorkspace.allowDragging = true;
-              }
-              if (parent && typeof parent.setMovable === 'function') {
-                parent.setMovable(true);
-              }
-              document.removeEventListener("mousemove", onMouseMove);
-              document.removeEventListener("mouseup", onMouseUp);
-            }
+          function onMouseUp() {
+            isResizing = false;
+            ScratchBlocks.mainWorkspace.allowDragging = true;
+            parent.setMovable(true);
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          }
 
-            document.addEventListener("mousemove", onMouseMove);
-            document.addEventListener("mouseup", onMouseUp);
-          });
-        }
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+        });
 
         // monkey patch this function since MutationObservers will lag
         // this patch allows dragging blocks to not act weird with mouse touching
-        if (parent && parent.svgGroup_ && typeof parent.svgGroup_.setAttribute === 'function') {
-          const ogSetAtt = parent.svgGroup_.setAttribute;
-          parent.svgGroup_.setAttribute = (...args) => {
-            if (args[0] === "class") {
-              const currentIsInFlyout = parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false;
-              const currentIsDragging = args[1] && typeof args[1].includes === 'function' ? args[1].includes("blocklyDragging") : false;
-              
-              if (currentIsInFlyout || currentIsDragging) {
-                if (iframe) iframe.style.pointerEvents = "none";
-                resizeHandle.style.pointerEvents = "none";
-              } else {
-                if (iframe) iframe.style.pointerEvents = "all";
-                resizeHandle.style.pointerEvents = "all";
-              }
+        const ogSetAtt = parent.svgGroup_.setAttribute;
+        parent.svgGroup_.setAttribute = (...args) => {
+          if (args[0] === "class") {
+            if (parent.isInFlyout || args[1].includes("blocklyDragging")) {
+              iframe.style.pointerEvents = "none";
+              resizeHandle.style.pointerEvents = "none";
+            } else {
+              iframe.style.pointerEvents = "all";
+              resizeHandle.style.pointerEvents = "all";
             }
-            return ogSetAtt.call(parent.svgGroup_, ...args);
-          };
+          }
+          ogSetAtt.call(parent.svgGroup_, ...args);
         }
       },
       () => { /* no work needs to be done here */ },
@@ -532,7 +472,7 @@
             CODE: {
               type: Scratch.ArgumentType.CUSTOM,
               id: "jsoop-codeEditor",
-              defaultValue: "needsInit-1@#4%^7*(0",
+              defaultValue: "jsoop-init-xyz789@!",
               exemptFromNormalization: true
             }
           },
@@ -548,7 +488,7 @@
             CODE: {
               type: Scratch.ArgumentType.CUSTOM,
               id: "jsoop-codeEditor",
-              defaultValue: "needsInit-1@#4%^7*(0",
+              defaultValue: "jsoop-init-xyz789@!",
               exemptFromNormalization: true
             }
           }
