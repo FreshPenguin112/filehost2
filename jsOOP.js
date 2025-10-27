@@ -40,7 +40,7 @@
   }
 
   // -------------------------
-  // ACE editor custom field for code inputs (safe for missing parent/svgGroup_/isInFlyout)
+  // ACE editor custom field for code inputs (safe + drag/hover override)
   // -------------------------
   const codeEditorHandlers = new Map();
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -71,6 +71,19 @@
         const srcBlock = field.sourceBlock_;
         // parent may be null
         const parent = srcBlock && srcBlock.parentBlock_ ? srcBlock.parentBlock_ : null;
+
+        // utility to check whether the editor should be allowed to take pointer events
+        function canEditorBeActive() {
+          try {
+            if (parent && typeof parent.isInFlyout === 'boolean' && parent.isInFlyout) return false;
+            if (srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && typeof srcBlock.svgGroup_.classList.contains === 'function' && srcBlock.svgGroup_.classList.contains("blocklyDragging")) return false;
+            return true;
+          } catch (e) {
+            return true;
+          }
+        }
+
+        // compute initial dragCheck
         const parentIsInFlyout = !!(parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false);
         const isDraggingClass = !!(srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && typeof srcBlock.svgGroup_.classList.contains === 'function' && srcBlock.svgGroup_.classList.contains("blocklyDragging"));
         const dragCheck = (parentIsInFlyout || isDraggingClass) ? "none" : "all";
@@ -121,6 +134,7 @@
 </body>
 </html>`;
         iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+
         // replace inner (if there is something) safely
         try {
           if (input && input.firstChild) input.replaceChild(iframe, input.firstChild);
@@ -128,6 +142,23 @@
         } catch (e) {
           // fallback: append
           try { input.appendChild(iframe); } catch (_) {}
+        }
+
+        // Editor active state handling (disables workspace dragging while active)
+        let isEditorPointerDown = false;
+        function setEditorActive(active) {
+          try {
+            // only allow if not in flyout or being dragged
+            if (!canEditorBeActive()) active = false;
+            iframe.style.pointerEvents = active ? "all" : "none";
+            if (resizeHandle) resizeHandle.style.pointerEvents = active ? "all" : "none";
+            try {
+              if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = !active;
+            } catch (er) {}
+            if (parent && typeof parent.setMovable === 'function') {
+              try { parent.setMovable(!active); } catch (er) {}
+            }
+          } catch (e) { /* ignore */ }
         }
 
         iframe.onload = () => {
@@ -151,11 +182,47 @@
         resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
         try { if (input) input.appendChild(resizeHandle); } catch (e) { /* ignore */ }
 
+        // Hover/pointer listeners so the editor actively claims input like the reference extension
+        try {
+          iframe.addEventListener('mouseenter', () => setEditorActive(true));
+          iframe.addEventListener('mouseleave', () => {
+            // only release if not pointer-down
+            if (!isEditorPointerDown) setEditorActive(false);
+          });
+          iframe.addEventListener('pointerdown', (ev) => {
+            // Claim pointer — disable workspace dragging while pressing
+            isEditorPointerDown = true;
+            setEditorActive(true);
+            // stop propagation so block drag won't start
+            try { ev.stopPropagation(); } catch (e) {}
+          });
+          // when pointerup anywhere, release
+          document.addEventListener('pointerup', () => {
+            if (isEditorPointerDown) {
+              isEditorPointerDown = false;
+              // small timeout helps avoid race with click/drag events
+              setTimeout(() => setEditorActive(false), 0);
+            }
+          });
+
+          // Resize handle should also claim pointer events
+          resizeHandle.addEventListener('mouseenter', () => setEditorActive(true));
+          resizeHandle.addEventListener('mouseleave', () => {
+            if (!isEditorPointerDown) setEditorActive(false);
+          });
+          resizeHandle.addEventListener('pointerdown', (ev) => {
+            isEditorPointerDown = true;
+            setEditorActive(true);
+            try { ev.stopPropagation(); } catch (e) {}
+          });
+        } catch (e) { /* ignore if any listener attach fails */ }
+
+        // Resizing logic
         let isResizing = false;
         let startX, startY, startW, startH;
         resizeHandle.addEventListener("mousedown", (e) => {
-          // use parentIsInFlyout (computed above). If parent may change later, this is still safe — worst-case: allow resize
-          if (parentIsInFlyout) return;
+          // if parent is in flyout, don't allow resize
+          if (parent && typeof parent.isInFlyout === 'boolean' && parent.isInFlyout) return;
           e.preventDefault();
           isResizing = true;
           startX = e.clientX;
@@ -163,7 +230,7 @@
           startW = input ? input.offsetWidth : 250;
           startH = input ? input.offsetHeight : 200;
 
-          // try to disable workspace dragging if available
+          // disable workspace dragging while resizing
           try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = false; } catch (er) {}
           if (parent && typeof parent.setMovable === 'function') {
             try { parent.setMovable(false); } catch (er) {}
@@ -217,11 +284,14 @@
                 const currentlyDragging = classStr.includes("blocklyDragging");
                 const parentIsFlyoutNow = !!(parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false);
                 if (parentIsFlyoutNow || currentlyDragging) {
+                  // when dragging or flyout, disable editor interactions
                   try { iframe.style.pointerEvents = "none"; } catch (er) {}
                   try { resizeHandle.style.pointerEvents = "none"; } catch (er) {}
+                  // ensure workspace dragging allowed while dragging
+                  try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = true; } catch (er) {}
                 } else {
-                  try { iframe.style.pointerEvents = "all"; } catch (er) {}
-                  try { resizeHandle.style.pointerEvents = "all"; } catch (er) {}
+                  // when not dragging, allow editor to be active only on hover / pointer events
+                  // don't forcibly enable — leave setEditorActive to hover/pointer handlers
                 }
               }
             } catch (er) { /* ignore */ }
