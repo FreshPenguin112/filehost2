@@ -44,11 +44,23 @@
         const inputObject = field.inputSource;
         const input = inputObject.firstChild;
         const srcBlock = field.sourceBlock_;
-        const parent = srcBlock.parentBlock_;
-        const dragCheck = parent.isInFlyout || srcBlock.svgGroup_.classList.contains("blocklyDragging") ? "none" : "all";
+        
+        // Safe parent detection with null checks
+        const parent = srcBlock && srcBlock.parentBlock_ ? srcBlock.parentBlock_ : null;
+        const isInFlyout = parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false;
+        const isDragging = srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && 
+                          typeof srcBlock.svgGroup_.classList.contains === 'function' ? 
+                          srcBlock.svgGroup_.classList.contains("blocklyDragging") : false;
+        
+        const dragCheck = isInFlyout || isDragging ? "none" : "all";
 
-        inputObject.setAttribute("pointer-events", "none");
-        input.style.height = "210px";
+        if (inputObject && inputObject.setAttribute) {
+          inputObject.setAttribute("pointer-events", "none");
+        }
+        if (input) {
+          input.style.height = "210px";
+        }
+        
         const iframe = document.createElement("iframe");
         iframe.setAttribute("style", `pointer-events: ${dragCheck}; background: #272822; border-radius: 10px; border: none; ${isSafari ? "" : "width: 100%;"} height: calc(100% - 20px);`);
         iframe.setAttribute("sandbox", "allow-scripts");
@@ -82,80 +94,129 @@
 </body>
 </html>`;
         iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-        input.replaceChild(iframe, input.firstChild);
+        
+        if (input && input.firstChild) {
+          input.replaceChild(iframe, input.firstChild);
+        } else if (input) {
+          input.appendChild(iframe);
+        }
+        
         iframe.onload = () => {
           let value = field.getValue();
-          if (value === "needsInit-JSOOP-0!93$&2%8!($7&#") {
+          if (value === "needsInit-1@#4%^7*(0") {
             // Set default code based on block type
             value = 'return {name: "Alice"}';
             field.setValue(value);
           }
 
-          iframe.contentWindow.postMessage({ value }, "*");
+          if (iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ value }, "*");
+          }
         };
 
         // listen for code updates
-        codeEditorHandlers.set(srcBlock.id, (value) => field.setValue(value));
+        if (srcBlock && srcBlock.id) {
+          codeEditorHandlers.set(srcBlock.id, (value) => {
+            try {
+              field.setValue(value);
+            } catch (e) {
+              // Ignore setValue errors
+            }
+          });
+        }
 
         const resizeHandle = document.createElement("div");
         resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
-        input.appendChild(resizeHandle);
+        
+        if (input) {
+          input.appendChild(resizeHandle);
+        }
 
         let isResizing = false;
         let startX, startY, startW, startH;
-        resizeHandle.addEventListener("mousedown", (e) => {
-          if (parent.isInFlyout) return;
-          e.preventDefault();
-          isResizing = true;
-          startX = e.clientX;
-          startY = e.clientY;
-          startW = input.offsetWidth;
-          startH = input.offsetHeight;
-          ScratchBlocks.mainWorkspace.allowDragging = false;
-          parent.setMovable(false);
+        
+        if (resizeHandle.addEventListener) {
+          resizeHandle.addEventListener("mousedown", (e) => {
+            if (isInFlyout) return;
+            e.preventDefault();
+            isResizing = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startW = input ? input.offsetWidth : 250;
+            startH = input ? input.offsetHeight : 200;
+            
+            if (ScratchBlocks && ScratchBlocks.mainWorkspace) {
+              ScratchBlocks.mainWorkspace.allowDragging = false;
+            }
+            if (parent && typeof parent.setMovable === 'function') {
+              parent.setMovable(false);
+            }
 
-          function onMouseMove(ev) {
-            if (!isResizing) return;
-            iframe.style.pointerEvents = "none";
-            const newW = Math.max(150, startW + (ev.clientX - startX));
-            const newH = Math.max(100, startH + (ev.clientY - startY));
-            input.style.width = `${newW}px`;
-            input.style.height = `${newH}px`;
-            resizeHandle.style.left = `${newW - 20}px`;
-            resizeHandle.style.top = `${newH - 40}px`;
-            inputObject.setAttribute("width", newW);
-            inputObject.setAttribute("height", newH);
-            field.size_.width = newW;
-            field.size_.height = newH - 10;
-            if (srcBlock?.render) srcBlock.render();
-          }
+            function onMouseMove(ev) {
+              if (!isResizing) return;
+              if (iframe) iframe.style.pointerEvents = "none";
+              const newW = Math.max(150, startW + (ev.clientX - startX));
+              const newH = Math.max(100, startH + (ev.clientY - startY));
+              
+              if (input) {
+                input.style.width = `${newW}px`;
+                input.style.height = `${newH}px`;
+              }
+              
+              resizeHandle.style.left = `${newW - 20}px`;
+              resizeHandle.style.top = `${newH - 40}px`;
+              
+              if (inputObject && inputObject.setAttribute) {
+                inputObject.setAttribute("width", newW);
+                inputObject.setAttribute("height", newH);
+              }
+              
+              if (field.size_) {
+                field.size_.width = newW;
+                field.size_.height = newH - 10;
+              }
+              
+              if (srcBlock && typeof srcBlock.render === 'function') {
+                srcBlock.render();
+              }
+            }
 
-          function onMouseUp() {
-            isResizing = false;
-            ScratchBlocks.mainWorkspace.allowDragging = true;
-            parent.setMovable(true);
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
-          }
+            function onMouseUp() {
+              isResizing = false;
+              if (ScratchBlocks && ScratchBlocks.mainWorkspace) {
+                ScratchBlocks.mainWorkspace.allowDragging = true;
+              }
+              if (parent && typeof parent.setMovable === 'function') {
+                parent.setMovable(true);
+              }
+              document.removeEventListener("mousemove", onMouseMove);
+              document.removeEventListener("mouseup", onMouseUp);
+            }
 
-          document.addEventListener("mousemove", onMouseMove);
-          document.addEventListener("mouseup", onMouseUp);
-        });
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", onMouseUp);
+          });
+        }
 
         // monkey patch this function since MutationObservers will lag
         // this patch allows dragging blocks to not act weird with mouse touching
-        const ogSetAtt = parent.svgGroup_.setAttribute;
-        parent.svgGroup_.setAttribute = (...args) => {
-          if (args[0] === "class") {
-            if (parent.isInFlyout || args[1].includes("blocklyDragging")) {
-              iframe.style.pointerEvents = "none";
-              resizeHandle.style.pointerEvents = "none";
-            } else {
-              iframe.style.pointerEvents = "all";
-              resizeHandle.style.pointerEvents = "all";
+        if (parent && parent.svgGroup_ && typeof parent.svgGroup_.setAttribute === 'function') {
+          const ogSetAtt = parent.svgGroup_.setAttribute;
+          parent.svgGroup_.setAttribute = (...args) => {
+            if (args[0] === "class") {
+              const currentIsInFlyout = parent && typeof parent.isInFlyout === 'boolean' ? parent.isInFlyout : false;
+              const currentIsDragging = args[1] && typeof args[1].includes === 'function' ? args[1].includes("blocklyDragging") : false;
+              
+              if (currentIsInFlyout || currentIsDragging) {
+                if (iframe) iframe.style.pointerEvents = "none";
+                resizeHandle.style.pointerEvents = "none";
+              } else {
+                if (iframe) iframe.style.pointerEvents = "all";
+                resizeHandle.style.pointerEvents = "all";
+              }
             }
-          }
-          ogSetAtt.call(parent.svgGroup_, ...args);
+            return ogSetAtt.call(parent.svgGroup_, ...args);
+          };
         }
       },
       () => { /* no work needs to be done here */ },
@@ -212,8 +273,11 @@
         if (t === 'bigint') {
           const minSafe = BigInt(Number.MIN_SAFE_INTEGER);
           const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
-          if (v >= minSafe && v <= maxSafe) return Number(v);
-          return v.toString();
+          if (v >= minSafe && v <= maxSafe) {
+            return Number(v);
+          } else {
+            return v.toString();
+          }
         }
         // Functions -> return their source string (can't serialize functions)
         if (t === 'function') return v.toString();
@@ -256,8 +320,8 @@
             return "[Object]";
           } catch (e) {
             return v && v.constructor && v.constructor.name
-            ? `[object ${v.constructor.name}]`
-            : "[object]";
+              ? `[object ${v.constructor.name}]`
+              : "[object]";
           }
         }
         // primitives: strings should appear as plain text, numbers/booleans as their textual form
@@ -468,7 +532,7 @@
             CODE: {
               type: Scratch.ArgumentType.CUSTOM,
               id: "jsoop-codeEditor",
-              defaultValue: "needsInit-JSOOP-0!93$&2%8!($7&#",
+              defaultValue: "needsInit-1@#4%^7*(0",
               exemptFromNormalization: true
             }
           },
@@ -484,7 +548,7 @@
             CODE: {
               type: Scratch.ArgumentType.CUSTOM,
               id: "jsoop-codeEditor",
-              defaultValue: "needsInit-JSOOP-0!93$&2%8!($7&#",
+              defaultValue: "needsInit-1@#4%^7*(0",
               exemptFromNormalization: true
             }
           }
