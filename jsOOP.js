@@ -482,6 +482,9 @@
         // evaluate arbitrary JS and return its value wrapped as JSObject
         {
           opcode: 'evalJS',
+          color1: "#6b8cff",
+          color2: "#6b8cff",
+          color3: "#6b8cff",
           blockType: Scratch.BlockType.REPORTER,
           text: 'eval JS [CODE]',
           arguments: {
@@ -493,6 +496,9 @@
         // run code without returning (command)
         {
           opcode: 'runJS',
+          color1: "#6b8cff",
+          color2: "#6b8cff",
+          color3: "#6b8cff",
           blockType: Scratch.BlockType.COMMAND,
           text: 'run JS [CODE]',
           arguments: {
