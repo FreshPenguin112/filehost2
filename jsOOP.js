@@ -1,3 +1,5 @@
+/* jshint esversion:11 */
+
 (async function(Scratch) {
     'use strict';
 
@@ -186,7 +188,9 @@
 
     class JSObject {
 
-        customId = "jsObject";
+        get customId() {
+            return "jsObject";
+        }
 
         constructor(value) {
 
@@ -595,7 +599,7 @@
                         }
                     }
                 },
-                            
+
                 {
                     opcode: 'awaitRunMethod',
                     blockType: Scratch.BlockType.COMMAND,
@@ -611,7 +615,8 @@
                             ...jwArray.Argument,
                             defaultValue: new jwArray.Type([])
                         }
-                    }},
+                    }
+                },
 
                 {
                     opcode: 'getProp',
@@ -722,11 +727,15 @@
                         VALUE: vm.dogeiscutObject ? {
                             ...vm.dogeiscutObject.Argument,
                         } : {
-                            ...({shape: 5, exemptFromNormalization: true, check: ["Object"]})
+                            ...({
+                                shape: 5,
+                                exemptFromNormalization: true,
+                                check: ["Object"]
+                            })
                         }
                     }
                 },
-                
+
                 {
                     opcode: 'separator1',
                     blockType: Scratch.BlockType.LABEL,
@@ -1442,212 +1451,242 @@
                 });
             }
         }
-        callFunction({ FUNC, THIS, ARGS }) {
-        if (DEBUG) console.dir({
-            action: 'callFunction(entry)',
-            FUNC, THIS, ARGS
-        });
-        
-        try {
-            const funcWrap = JSObject.toType(FUNC);
-            const func = funcWrap.value;
-            const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
-            const args = this._convertJwArrayToArgs(ARGS);
-            
-            if (typeof func !== 'function') {
-                return new JSObject({
-                    error: 'FUNC is not a function'
-                });
-            }
-            
-            const result = func.apply(thisArg, args);
+        callFunction({
+            FUNC,
+            THIS,
+            ARGS
+        }) {
             if (DEBUG) console.dir({
-                action: 'callFunction(result)',
-                result
+                action: 'callFunction(entry)',
+                FUNC,
+                THIS,
+                ARGS
             });
-            
-            const wrappedResult = JSObject.toType(result);
-            return this._convertResultToJwArray(wrappedResult);
-        } catch (err) {
-            if (DEBUG) console.dir({
-                action: 'callFunction(error)',
-                error: err
-            });
-            return new JSObject({
-                error: String(err)
-            });
-        }
-    },
-    
-    async awaitCallFunction({ FUNC, THIS, ARGS }) {
-        if (DEBUG) console.dir({
-            action: 'awaitCallFunction(entry)',
-            FUNC, THIS, ARGS
-        });
-        
-        try {
-            const funcWrap = JSObject.toType(FUNC);
-            const func = funcWrap.value;
-            const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
-            const args = this._convertJwArrayToArgs(ARGS);
-            
-            if (typeof func !== 'function') {
-                return new JSObject({
-                    error: 'FUNC is not a function'
-                });
-            }
-            
-            let result = func.apply(thisArg, args);
-            if (result && typeof result.then === 'function') {
-                result = await result;
-            }
-            
-            if (DEBUG) console.dir({
-                action: 'awaitCallFunction(result)',
-                result
-            });
-            
-            const wrappedResult = JSObject.toType(result);
-            return this._convertResultToJwArray(wrappedResult);
-        } catch (err) {
-            if (DEBUG) console.dir({
-                action: 'awaitCallFunction(error)',
-                error: err
-            });
-            return new JSObject({
-                error: String(err)
-            });
-        }
-    },
-    
-    runFunction({ FUNC, THIS, ARGS }) {
-        if (DEBUG) console.dir({
-            action: 'runFunction(entry)',
-            FUNC, THIS, ARGS
-        });
-        
-        try {
-            const funcWrap = JSObject.toType(FUNC);
-            const func = funcWrap.value;
-            const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
-            const args = this._convertJwArrayToArgs(ARGS);
-            
-            if (typeof func !== 'function') {
+
+            try {
+                const funcWrap = JSObject.toType(FUNC);
+                const func = funcWrap.value;
+                const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
+                const args = this._convertJwArrayToArgs(ARGS);
+
+                if (typeof func !== 'function') {
+                    return new JSObject({
+                        error: 'FUNC is not a function'
+                    });
+                }
+
+                const result = func.apply(thisArg, args);
                 if (DEBUG) console.dir({
-                    action: 'runFunction(notFunction)'
+                    action: 'callFunction(result)',
+                    result
+                });
+
+                const wrappedResult = JSObject.toType(result);
+                return this._convertResultToJwArray(wrappedResult);
+            } catch (err) {
+                if (DEBUG) console.dir({
+                    action: 'callFunction(error)',
+                    error: err
+                });
+                return new JSObject({
+                    error: String(err)
+                });
+            }
+        }
+
+        async awaitCallFunction({
+            FUNC,
+            THIS,
+            ARGS
+        }) {
+            if (DEBUG) console.dir({
+                action: 'awaitCallFunction(entry)',
+                FUNC,
+                THIS,
+                ARGS
+            });
+
+            try {
+                const funcWrap = JSObject.toType(FUNC);
+                const func = funcWrap.value;
+                const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
+                const args = this._convertJwArrayToArgs(ARGS);
+
+                if (typeof func !== 'function') {
+                    return new JSObject({
+                        error: 'FUNC is not a function'
+                    });
+                }
+
+                let result = func.apply(thisArg, args);
+                if (result && typeof result.then === 'function') {
+                    result = await result;
+                }
+
+                if (DEBUG) console.dir({
+                    action: 'awaitCallFunction(result)',
+                    result
+                });
+
+                const wrappedResult = JSObject.toType(result);
+                return this._convertResultToJwArray(wrappedResult);
+            } catch (err) {
+                if (DEBUG) console.dir({
+                    action: 'awaitCallFunction(error)',
+                    error: err
+                });
+                return new JSObject({
+                    error: String(err)
+                });
+            }
+        }
+
+        runFunction({
+            FUNC,
+            THIS,
+            ARGS
+        }) {
+            if (DEBUG) console.dir({
+                action: 'runFunction(entry)',
+                FUNC,
+                THIS,
+                ARGS
+            });
+
+            try {
+                const funcWrap = JSObject.toType(FUNC);
+                const func = funcWrap.value;
+                const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
+                const args = this._convertJwArrayToArgs(ARGS);
+
+                if (typeof func !== 'function') {
+                    if (DEBUG) console.dir({
+                        action: 'runFunction(notFunction)'
+                    });
+                    return;
+                }
+
+                func.apply(thisArg, args);
+                if (DEBUG) console.dir({
+                    action: 'runFunction(done)'
+                });
+            } catch (err) {
+                if (DEBUG) console.dir({
+                    action: 'runFunction(error)',
+                    error: err
+                });
+            }
+        }
+
+        async awaitRunFunction({
+            FUNC,
+            THIS,
+            ARGS
+        }) {
+            if (DEBUG) console.dir({
+                action: 'awaitRunFunction(entry)',
+                FUNC,
+                THIS,
+                ARGS
+            });
+
+            try {
+                const funcWrap = JSObject.toType(FUNC);
+                const func = funcWrap.value;
+                const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
+                const args = this._convertJwArrayToArgs(ARGS);
+
+                if (typeof func !== 'function') {
+                    if (DEBUG) console.dir({
+                        action: 'awaitRunFunction(notFunction)'
+                    });
+                    return;
+                }
+
+                let result = func.apply(thisArg, args);
+                if (result && typeof result.then === 'function') {
+                    await result;
+                }
+
+                if (DEBUG) console.dir({
+                    action: 'awaitRunFunction(done)'
+                });
+            } catch (err) {
+                if (DEBUG) console.dir({
+                    action: 'awaitRunFunction(error)',
+                    error: err
+                });
+            }
+        }
+
+        async awaitRunMethod({
+            METHOD,
+            INSTANCE,
+            ARGS
+        }) {
+            if (DEBUG) console.dir({
+                action: 'awaitRunMethod(entry)',
+                METHOD,
+                INSTANCE,
+                ARGS
+            });
+
+            INSTANCE = JSObject.toType(INSTANCE);
+            const target = INSTANCE.value;
+            const args = this._convertJwArrayToArgs(ARGS);
+
+            if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+                const primProto = Object.getPrototypeOf(target);
+                const fnPrim = primProto && primProto[METHOD];
+                if (typeof fnPrim === 'function') {
+                    try {
+                        let result = fnPrim.apply(target, args);
+                        if (result && typeof result.then === 'function') {
+                            await result;
+                        }
+                        if (DEBUG) console.dir({
+                            action: 'awaitRunMethod(donePrimitive)'
+                        });
+                        return;
+                    } catch (err) {
+                        if (DEBUG) console.dir({
+                            action: 'awaitRunMethod(errorPrimitive)',
+                            error: err
+                        });
+                        return;
+                    }
+                }
+                if (DEBUG) console.dir({
+                    action: 'awaitRunMethod(noMethod)'
                 });
                 return;
             }
-            
-            func.apply(thisArg, args);
-            if (DEBUG) console.dir({
-                action: 'runFunction(done)'
-            });
-        } catch (err) {
-            if (DEBUG) console.dir({
-                action: 'runFunction(error)',
-                error: err
-            });
-        }
-    },
-    
-    async awaitRunFunction({ FUNC, THIS, ARGS }) {
-        if (DEBUG) console.dir({
-            action: 'awaitRunFunction(entry)',
-            FUNC, THIS, ARGS
-        });
-        
-        try {
-            const funcWrap = JSObject.toType(FUNC);
-            const func = funcWrap.value;
-            const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
-            const args = this._convertJwArrayToArgs(ARGS);
-            
-            if (typeof func !== 'function') {
-                if (DEBUG) console.dir({
-                    action: 'awaitRunFunction(notFunction)'
-                });
-                return;
-            }
-            
-            let result = func.apply(thisArg, args);
-            if (result && typeof result.then === 'function') {
-                await result;
-            }
-            
-            if (DEBUG) console.dir({
-                action: 'awaitRunFunction(done)'
-            });
-        } catch (err) {
-            if (DEBUG) console.dir({
-                action: 'awaitRunFunction(error)',
-                error: err
-            });
-        }
-    },
-    
-    async awaitRunMethod({ METHOD, INSTANCE, ARGS }) {
-        if (DEBUG) console.dir({
-            action: 'awaitRunMethod(entry)',
-            METHOD, INSTANCE, ARGS
-        });
-        
-        INSTANCE = JSObject.toType(INSTANCE);
-        const target = INSTANCE.value;
-        const args = this._convertJwArrayToArgs(ARGS);
-    
-        if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
-            const primProto = Object.getPrototypeOf(target);
-            const fnPrim = primProto && primProto[METHOD];
-            if (typeof fnPrim === 'function') {
+
+            const fn = target[METHOD] || (Object.getPrototypeOf(target) && Object.getPrototypeOf(target)[METHOD]);
+            if (typeof fn === 'function') {
                 try {
-                    let result = fnPrim.apply(target, args);
+                    let result = fn.apply(target, args);
                     if (result && typeof result.then === 'function') {
                         await result;
                     }
                     if (DEBUG) console.dir({
-                        action: 'awaitRunMethod(donePrimitive)'
+                        action: 'awaitRunMethod(done)'
                     });
-                    return;
                 } catch (err) {
                     if (DEBUG) console.dir({
-                        action: 'awaitRunMethod(errorPrimitive)',
+                        action: 'awaitRunMethod(error)',
                         error: err
                     });
-                    return;
                 }
-            }
-            if (DEBUG) console.dir({
-                action: 'awaitRunMethod(noMethod)'
-            });
-            return;
-        }
-    
-        const fn = target[METHOD] || (Object.getPrototypeOf(target) && Object.getPrototypeOf(target)[METHOD]);
-        if (typeof fn === 'function') {
-            try {
-                let result = fn.apply(target, args);
-                if (result && typeof result.then === 'function') {
-                    await result;
-                }
+            } else {
                 if (DEBUG) console.dir({
-                    action: 'awaitRunMethod(done)'
-                });
-            } catch (err) {
-                if (DEBUG) console.dir({
-                    action: 'awaitRunMethod(error)',
-                    error: err
+                    action: 'awaitRunMethod(noMethod)',
+                    METHOD
                 });
             }
-        } else {
-            if (DEBUG) console.dir({
-                action: 'awaitRunMethod(noMethod)',
-                METHOD
-            });
         }
-    }
 
-        
+
 
         getProp({
             PROP,
