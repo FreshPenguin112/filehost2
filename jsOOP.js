@@ -463,18 +463,26 @@
     getInfo() {
       // Add blocks that use the ACE editor (similar to reference structure)
       const blocks = [
+        {
+          opcode: "codeInput",
+          text: "[CODE]",
+          blockType: Scratch.BlockType.REPORTER,
+          blockShape: Scratch.BlockShape.SQUARE,
+          hideFromPalette: true,
+          arguments: {
+            CODE: {
+              type: Scratch.ArgumentType.CUSTOM, id: "jsoop-codeEditor",
+              defaultValue: "jsoop-init-xyz789@!"
+            }
+          },
+        },
         // evaluate arbitrary JS and return its value wrapped as JSObject
         {
           opcode: 'evalJS',
           blockType: Scratch.BlockType.REPORTER,
           text: 'eval JS [CODE]',
           arguments: {
-            CODE: {
-              type: Scratch.ArgumentType.CUSTOM,
-              id: "jsoop-codeEditor",
-              defaultValue: "jsoop-init-xyz789@!",
-              exemptFromNormalization: true
-            }
+            CODE: { fillIn: "codeInput" }
           },
           ...JSObjectDescriptor.Block
         },
@@ -485,12 +493,7 @@
           blockType: Scratch.BlockType.COMMAND,
           text: 'run JS [CODE]',
           arguments: {
-            CODE: {
-              type: Scratch.ArgumentType.CUSTOM,
-              id: "jsoop-codeEditor",
-              defaultValue: "jsoop-init-xyz789@!",
-              exemptFromNormalization: true
-            }
+            CODE: { fillIn: "codeInput" }
           }
         },
 
@@ -877,8 +880,8 @@
         id: 'jsoop',
         name: 'JS OOP Bridge',
         color1: '#6b8cff',
-        color2: '#4968d9',
-        color3: '#334fb7',
+        //color2: '#4968d9',
+        //color3: '#334fb7',
         blocks: blocks
       };
     }
@@ -942,6 +945,10 @@
       } catch (e) {
         return '[unconvertible]';
       }
+    }
+
+    codeInput(args) {
+      return args.CODE;
     }
 
     // ===== CONSTANT REPORTER IMPLEMENTATIONS =====
