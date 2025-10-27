@@ -1,6 +1,6 @@
 /* jshint esversion:11 */
 
-(async function(Scratch) {
+(function(Scratch) {
     'use strict';
 
     if (!Scratch.extensions || !Scratch.extensions.unsandboxed) {
@@ -645,9 +645,11 @@
                             ...(vm.dogeiscutObject ? {
                                 ...vm.dogeiscutObject.Argument,
                             } : {
-                                shape: Scratch.BlockShape.ROUND,
-                                exemptFromNormalization: true,
-                                check: ["Object"]
+                                ...({
+                                    shape: 5,
+                                    exemptFromNormalization: true,
+                                    check: ["Object"]
+                                })
                             }),
                             defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
                         },
@@ -658,7 +660,7 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-                
+
                 {
                     opcode: 'awaitCallFunction',
                     blockType: Scratch.BlockType.REPORTER,
@@ -669,9 +671,11 @@
                             ...(vm.dogeiscutObject ? {
                                 ...vm.dogeiscutObject.Argument,
                             } : {
-                                shape: Scratch.BlockShape.ROUND,
-                                exemptFromNormalization: true,
-                                check: ["Object"]
+                                ...({
+                                    shape: 5,
+                                    exemptFromNormalization: true,
+                                    check: ["Object"]
+                                })
                             }),
                             defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
                         },
@@ -682,7 +686,7 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-                
+
                 {
                     opcode: 'runFunction',
                     blockType: Scratch.BlockType.COMMAND,
@@ -693,9 +697,11 @@
                             ...(vm.dogeiscutObject ? {
                                 ...vm.dogeiscutObject.Argument,
                             } : {
-                                shape: Scratch.BlockShape.ROUND,
-                                exemptFromNormalization: true,
-                                check: ["Object"]
+                                ...({
+                                    shape: 5,
+                                    exemptFromNormalization: true,
+                                    check: ["Object"]
+                                })
                             }),
                             defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
                         },
@@ -705,7 +711,7 @@
                         }
                     }
                 },
-                
+
                 {
                     opcode: 'awaitRunFunction',
                     blockType: Scratch.BlockType.COMMAND,
@@ -716,9 +722,11 @@
                             ...(vm.dogeiscutObject ? {
                                 ...vm.dogeiscutObject.Argument,
                             } : {
-                                shape: Scratch.BlockShape.ROUND,
-                                exemptFromNormalization: true,
-                                check: ["Object"]
+                                ...({
+                                    shape: 5,
+                                    exemptFromNormalization: true,
+                                    check: ["Object"]
+                                })
                             }),
                             defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
                         },
