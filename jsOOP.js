@@ -465,6 +465,9 @@
       const blocks = [
         {
           opcode: "codeInput",
+          color1: "#6b8cff",
+          color2: "#6b8cff",
+          color3: "#6b8cff",
           text: "[CODE]",
           blockType: Scratch.BlockType.REPORTER,
           blockShape: Scratch.BlockShape.SQUARE,
@@ -880,7 +883,7 @@
         id: 'jsoop',
         name: 'JS OOP Bridge',
         color1: '#6b8cff',
-        color2: '#6b8cff',
+        color2: '#4968d9',
         color3: '#334fb7',
         blocks: blocks
       };
