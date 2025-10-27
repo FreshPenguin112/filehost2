@@ -599,6 +599,24 @@
                         }
                     }
                 },
+                {
+                    opcode: 'awaitRunMethod',
+                    blockType: Scratch.BlockType.COMMAND,
+                    text: 'await run method [METHOD] on [INSTANCE] with args [ARGS]',
+                    arguments: {
+                        METHOD: {
+                            type: Scratch.ArgumentType.STRING,
+                            defaultValue: 'then',
+                            exemptFromNormalization: true
+                        },
+                        INSTANCE: JSObjectDescriptor.Argument,
+                        ARGS: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    }
+                },
+
 
                 {
                     opcode: 'awaitRunMethod',
@@ -611,6 +629,99 @@
                             exemptFromNormalization: true
                         },
                         INSTANCE: JSObjectDescriptor.Argument,
+                        ARGS: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    }
+                },
+                {
+                    opcode: 'callFunction',
+                    blockType: Scratch.BlockType.REPORTER,
+                    text: 'call function [FUNC] with this [THIS] args [ARGS]',
+                    arguments: {
+                        FUNC: JSObjectDescriptor.Argument,
+                        THIS: {
+                            ...(vm.dogeiscutObject ? {
+                                ...vm.dogeiscutObject.Argument,
+                            } : {
+                                shape: Scratch.BlockShape.ROUND,
+                                exemptFromNormalization: true,
+                                check: ["Object"]
+                            }),
+                            defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
+                        },
+                        ARGS: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    },
+                    ...JSObjectDescriptor.Block
+                },
+                
+                {
+                    opcode: 'awaitCallFunction',
+                    blockType: Scratch.BlockType.REPORTER,
+                    text: 'await call function [FUNC] with this [THIS] args [ARGS]',
+                    arguments: {
+                        FUNC: JSObjectDescriptor.Argument,
+                        THIS: {
+                            ...(vm.dogeiscutObject ? {
+                                ...vm.dogeiscutObject.Argument,
+                            } : {
+                                shape: Scratch.BlockShape.ROUND,
+                                exemptFromNormalization: true,
+                                check: ["Object"]
+                            }),
+                            defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
+                        },
+                        ARGS: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    },
+                    ...JSObjectDescriptor.Block
+                },
+                
+                {
+                    opcode: 'runFunction',
+                    blockType: Scratch.BlockType.COMMAND,
+                    text: 'run function [FUNC] with this [THIS] args [ARGS]',
+                    arguments: {
+                        FUNC: JSObjectDescriptor.Argument,
+                        THIS: {
+                            ...(vm.dogeiscutObject ? {
+                                ...vm.dogeiscutObject.Argument,
+                            } : {
+                                shape: Scratch.BlockShape.ROUND,
+                                exemptFromNormalization: true,
+                                check: ["Object"]
+                            }),
+                            defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
+                        },
+                        ARGS: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    }
+                },
+                
+                {
+                    opcode: 'awaitRunFunction',
+                    blockType: Scratch.BlockType.COMMAND,
+                    text: 'await run function [FUNC] with this [THIS] args [ARGS]',
+                    arguments: {
+                        FUNC: JSObjectDescriptor.Argument,
+                        THIS: {
+                            ...(vm.dogeiscutObject ? {
+                                ...vm.dogeiscutObject.Argument,
+                            } : {
+                                shape: Scratch.BlockShape.ROUND,
+                                exemptFromNormalization: true,
+                                check: ["Object"]
+                            }),
+                            defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
+                        },
                         ARGS: {
                             ...jwArray.Argument,
                             defaultValue: new jwArray.Type([])
