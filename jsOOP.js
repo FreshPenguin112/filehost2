@@ -16,6 +16,154 @@
   // Load dogeiscutObject extension if not already loaded
   if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
+  // ACE Editor implementation (copied from reference with SPjavascriptV2 -> jsoop)
+  let isScratchBlocksReady = typeof ScratchBlocks === "object";
+  const codeEditorHandlers = new Map();
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  function initBlockTools() {
+    window.addEventListener("message", (e) => {
+      if (e.data?.type === "code-change") {
+        const handler = codeEditorHandlers.get(e.data.id);
+        if (handler) handler(e.data.value);
+      }
+    });
+
+    const recyclableDiv = document.createElement("div");
+    recyclableDiv.setAttribute("style", `display: flex; justify-content: center; padding-top: 10px; width: 250px; height: 200px;`);
+
+    const fakeDiv = document.createElement("div");
+    fakeDiv.setAttribute("style", "background: #272822; border-radius: 10px; border: none; width: 100%; height: calc(100% - 20px);");
+    recyclableDiv.appendChild(fakeDiv);
+
+    ScratchBlocks.FieldCustom.registerInput(
+      "jsoop-codeEditor",
+      recyclableDiv,
+      (field) => {
+        /* on init */
+        const inputObject = field.inputSource;
+        const input = inputObject.firstChild;
+        const srcBlock = field.sourceBlock_;
+        const parent = srcBlock.parentBlock_;
+        const dragCheck = parent.isInFlyout || srcBlock.svgGroup_.classList.contains("blocklyDragging") ? "none" : "all";
+
+        inputObject.setAttribute("pointer-events", "none");
+        input.style.height = "210px";
+        const iframe = document.createElement("iframe");
+        iframe.setAttribute("style", `pointer-events: ${dragCheck}; background: #272822; border-radius: 10px; border: none; ${isSafari ? "" : "width: 100%;"} height: calc(100% - 20px);`);
+        iframe.setAttribute("sandbox", "allow-scripts");
+
+        const html = `
+<!DOCTYPE html>
+<html><head>
+  <style>html, body, #editor {background: #272822; margin: 0; padding: 0; height: 100%; width: 100%;}</style>
+</head>
+<body>
+  <div id="editor"></div>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/ace.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/mode-javascript.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/theme-monokai.js"></script>
+  <script>
+    window.addEventListener("message", function(e) {
+      const editor = ace.edit("editor");
+      editor.setOptions({
+        fontSize: "15px", showPrintMargin: false,
+        highlightActiveLine: true, useWorker: false
+      });
+
+      editor.session.setMode("ace/mode/javascript");
+      editor.setTheme("ace/theme/monokai");
+      editor.setValue(e.data.value);
+      editor.session.on("change", () => parent.postMessage({
+        type: "code-change", id: "${srcBlock.id}", value: editor.getValue()
+      }, "*"));
+    }, { once: true });
+  </script>
+</body>
+</html>`;
+        iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+        input.replaceChild(iframe, input.firstChild);
+        iframe.onload = () => {
+          let value = field.getValue();
+          if (value === "needsInit-JSOOP-0!93$&2%8!($7&#") {
+            // Set default code based on block type
+            value = 'return {name: "Alice"}';
+            field.setValue(value);
+          }
+
+          iframe.contentWindow.postMessage({ value }, "*");
+        };
+
+        // listen for code updates
+        codeEditorHandlers.set(srcBlock.id, (value) => field.setValue(value));
+
+        const resizeHandle = document.createElement("div");
+        resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
+        input.appendChild(resizeHandle);
+
+        let isResizing = false;
+        let startX, startY, startW, startH;
+        resizeHandle.addEventListener("mousedown", (e) => {
+          if (parent.isInFlyout) return;
+          e.preventDefault();
+          isResizing = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          startW = input.offsetWidth;
+          startH = input.offsetHeight;
+          ScratchBlocks.mainWorkspace.allowDragging = false;
+          parent.setMovable(false);
+
+          function onMouseMove(ev) {
+            if (!isResizing) return;
+            iframe.style.pointerEvents = "none";
+            const newW = Math.max(150, startW + (ev.clientX - startX));
+            const newH = Math.max(100, startH + (ev.clientY - startY));
+            input.style.width = `${newW}px`;
+            input.style.height = `${newH}px`;
+            resizeHandle.style.left = `${newW - 20}px`;
+            resizeHandle.style.top = `${newH - 40}px`;
+            inputObject.setAttribute("width", newW);
+            inputObject.setAttribute("height", newH);
+            field.size_.width = newW;
+            field.size_.height = newH - 10;
+            if (srcBlock?.render) srcBlock.render();
+          }
+
+          function onMouseUp() {
+            isResizing = false;
+            ScratchBlocks.mainWorkspace.allowDragging = true;
+            parent.setMovable(true);
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          }
+
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+        });
+
+        // monkey patch this function since MutationObservers will lag
+        // this patch allows dragging blocks to not act weird with mouse touching
+        const ogSetAtt = parent.svgGroup_.setAttribute;
+        parent.svgGroup_.setAttribute = (...args) => {
+          if (args[0] === "class") {
+            if (parent.isInFlyout || args[1].includes("blocklyDragging")) {
+              iframe.style.pointerEvents = "none";
+              resizeHandle.style.pointerEvents = "none";
+            } else {
+              iframe.style.pointerEvents = "all";
+              resizeHandle.style.pointerEvents = "all";
+            }
+          }
+          ogSetAtt.call(parent.svgGroup_, ...args);
+        }
+      },
+      () => { /* no work needs to be done here */ },
+      () => { /* no work needs to be done here */ }
+    );
+  }
+  if (isScratchBlocksReady) initBlockTools();
+
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -37,284 +185,6 @@
       }
       return value;
     }, 2);
-  }
-
-  // -------------------------
-  // ACE editor custom field for code inputs (copied from reference, adapted)
-  // -------------------------
-  let isScratchBlocksReady = typeof ScratchBlocks === "object";
-  const codeEditorHandlers = new Map();
-  // we cant have nice things
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-  async function runCode(x) {
-    return await Object.getPrototypeOf(async function() {}).constructor(x)();
-  }
-
-  function initBlockTools() {
-    // avoid double-init
-    if (typeof ScratchBlocks !== "object") return;
-
-    window.addEventListener("message", (e) => {
-      if (e.data?.type === "code-change") {
-        const handler = codeEditorHandlers.get(e.data.id);
-        if (handler) handler(e.data.value);
-      }
-    });
-
-    const recyclableDiv = document.createElement("div");
-    recyclableDiv.setAttribute("style", `display: flex; justify-content: center; padding-top: 10px; width: 250px; height: 200px;`);
-
-    const fakeDiv = document.createElement("div");
-    fakeDiv.setAttribute("style", "background: #272822; border-radius: 10px; border: none; width: 100%; height: calc(100% - 20px);");
-    recyclableDiv.appendChild(fakeDiv);
-
-    ScratchBlocks.FieldCustom.registerInput(
-      "jsoop-codeEditor",
-      recyclableDiv,
-      (field) => {
-        /* on init */
-        const inputObject = field.inputSource;
-        const input = inputObject && inputObject.firstChild ? inputObject.firstChild : null;
-        const srcBlock = field.sourceBlock_;
-        // parent may be missing
-        const parent = srcBlock && srcBlock.parentBlock_ ? srcBlock.parentBlock_ : null;
-
-        // compute safe dragCheck guard
-        let parentIsInFlyout = false;
-        try { parentIsInFlyout = !!(parent && parent.isInFlyout); } catch (e) { parentIsInFlyout = false; }
-        let isDraggingClass = false;
-        try { isDraggingClass = !!(srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && srcBlock.svgGroup_.classList.contains && srcBlock.svgGroup_.classList.contains("blocklyDragging")); } catch (e) { isDraggingClass = false; }
-        const dragCheck = (parentIsInFlyout || isDraggingClass) ? "none" : "all";
-
-        try { if (inputObject && inputObject.setAttribute) inputObject.setAttribute("pointer-events", "none"); } catch (e) {}
-        try { if (input) input.style.height = "210px"; } catch (e) {}
-
-        const iframe = document.createElement("iframe");
-        iframe.setAttribute("style", `pointer-events: ${dragCheck}; background: #272822; border-radius: 10px; border: none; ${isSafari ? "" : "width: 100%;"} height: calc(100% - 20px);`);
-        iframe.setAttribute("sandbox", "allow-scripts");
-
-        const html = `
-<!DOCTYPE html>
-<html><head>
-  <meta charset="utf-8"/>
-  <style>html, body, #editor {background: #272822; margin: 0; padding: 0; height: 100%; width: 100%;}</style>
-</head>
-<body>
-  <div id="editor"></div>
-  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/ace.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/mode-javascript.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/theme-monokai.js"></script>
-  <script>
-    window.addEventListener("message", function(e) {
-      try {
-        const editor = ace.edit("editor");
-        editor.setOptions({
-          fontSize: "15px", showPrintMargin: false,
-          highlightActiveLine: true, useWorker: false
-        });
-
-        editor.session.setMode("ace/mode/javascript");
-        editor.setTheme("ace/theme/monokai");
-        editor.setValue(e.data.value || "");
-        editor.session.on("change", function() {
-          parent.postMessage({
-            type: "code-change", id: "${srcBlock?.id}", value: editor.getValue()
-          }, "*");
-        });
-      } catch (err) {
-        parent.postMessage({ type: "code-change", id: "${srcBlock?.id}", value: e.data.value || "" }, "*");
-      }
-    }, { once: true });
-  </script>
-</body>
-</html>`;
-        iframe.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-
-        // safe replace / append
-        try {
-          if (input && input.firstChild) input.replaceChild(iframe, input.firstChild);
-          else if (input) input.appendChild(iframe);
-        } catch (e) {
-          try { if (input) input.appendChild(iframe); } catch (e2) {}
-        }
-
-        iframe.onload = () => {
-          // initialize value (if sentinel) to block-specific defaults like the reference
-          try {
-            let value = field.getValue();
-            if (value === "needsInit-1@#4%^7*(0") {
-              // decide default based on block type (field may be used in multiple blocks)
-              const myType = (srcBlock && srcBlock.type) || (parent && parent.type) || "";
-              // if block is evalJS
-              if (typeof myType === "string" && myType.toLowerCase().includes("evaljs")) {
-                value = 'return {name: "Alice"}';
-              } else if (typeof myType === "string" && myType.toLowerCase().includes("runjs")) {
-                value = 'console.log("hi")';
-              } else {
-                // generic default
-                value = '';
-              }
-              try { field.setValue(value); } catch (e) {}
-            }
-            if (iframe.contentWindow) iframe.contentWindow.postMessage({ value: field.getValue() }, "*");
-          } catch (e) {}
-        };
-
-        // listen for code updates
-        try {
-          if (srcBlock && srcBlock.id) codeEditorHandlers.set(srcBlock.id, (value) => {
-            try { field.setValue(value); } catch (e) {}
-          });
-        } catch (e) {}
-
-        // add resize handle
-        const resizeHandle = document.createElement("div");
-        resizeHandle.setAttribute("style", `pointer-events: ${dragCheck}; position: absolute; right: 5px; bottom: 15px; width: 12px; height: 12px; background: #ffffff40; cursor: se-resize; border-radius: 0px 0 50px 0;`);
-        try { if (input) input.appendChild(resizeHandle); } catch (e) {}
-
-        // active state management
-        let isResizing = false;
-        let isEditorPointerDown = false;
-        let startX, startY, startW, startH;
-
-        function setEditorActive(active) {
-          try {
-            // if parent is in flyout or block is being dragged, don't allow
-            const parentFlyoutNow = !!(parent && parent.isInFlyout);
-            const currentlyDragging = !!(srcBlock && srcBlock.svgGroup_ && srcBlock.svgGroup_.classList && srcBlock.svgGroup_.classList.contains && srcBlock.svgGroup_.classList.contains("blocklyDragging"));
-            if (parentFlyoutNow || currentlyDragging) active = false;
-
-            iframe.style.pointerEvents = active ? "all" : "none";
-            try { if (resizeHandle) resizeHandle.style.pointerEvents = active ? "all" : "none"; } catch (e) {}
-            try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = !active; } catch (e) {}
-            if (parent && typeof parent.setMovable === 'function') {
-              try { parent.setMovable(!active); } catch (e) {}
-            }
-          } catch (e) {}
-        }
-
-        // pointer/hover handlers to claim input like reference
-        try {
-          iframe.addEventListener("mouseenter", () => setEditorActive(true));
-          iframe.addEventListener("mouseleave", () => { if (!isEditorPointerDown && !isResizing) setEditorActive(false); });
-          iframe.addEventListener("pointerdown", (ev) => {
-            isEditorPointerDown = true;
-            setEditorActive(true);
-            try { ev.stopPropagation(); } catch (e) {}
-          });
-          document.addEventListener("pointerup", () => {
-            if (isEditorPointerDown) {
-              isEditorPointerDown = false;
-              setTimeout(() => setEditorActive(false), 0);
-            }
-          });
-
-          // resize handle should also claim pointer input
-          resizeHandle.addEventListener("mouseenter", () => setEditorActive(true));
-          resizeHandle.addEventListener("mouseleave", () => { if (!isEditorPointerDown && !isResizing) setEditorActive(false); });
-          resizeHandle.addEventListener("pointerdown", (ev) => {
-            isEditorPointerDown = true;
-            setEditorActive(true);
-            try { ev.stopPropagation(); } catch (e) {}
-          });
-        } catch (e) {}
-
-        // resizing
-        resizeHandle.addEventListener("mousedown", (e) => {
-          // don't allow resize in flyout
-          if (parent && parent.isInFlyout) return;
-          e.preventDefault();
-          isResizing = true;
-          startX = e.clientX;
-          startY = e.clientY;
-          startW = input ? input.offsetWidth : 250;
-          startH = input ? input.offsetHeight : 200;
-
-          try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = false; } catch (e) {}
-          if (parent && typeof parent.setMovable === 'function') {
-            try { parent.setMovable(false); } catch (e) {}
-          }
-
-          function onMouseMove(ev) {
-            if (!isResizing) return;
-            try { iframe.style.pointerEvents = "none"; } catch (er) {}
-            const newW = Math.max(150, startW + (ev.clientX - startX));
-            const newH = Math.max(100, startH + (ev.clientY - startY));
-            try {
-              if (input) {
-                input.style.width = `${newW}px`;
-                input.style.height = `${newH}px`;
-              }
-              resizeHandle.style.left = `${newW - 20}px`;
-              resizeHandle.style.top = `${newH - 40}px`;
-              if (inputObject && inputObject.setAttribute) {
-                inputObject.setAttribute("width", newW);
-                inputObject.setAttribute("height", newH);
-              }
-              if (field.size_) {
-                field.size_.width = newW;
-                field.size_.height = newH - 10;
-              }
-              if (srcBlock && typeof srcBlock.render === 'function') srcBlock.render();
-            } catch (er) {}
-          }
-
-          function onMouseUp() {
-            isResizing = false;
-            try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = true; } catch (er) {}
-            if (parent && typeof parent.setMovable === 'function') {
-              try { parent.setMovable(true); } catch (er) {}
-            }
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
-            setTimeout(() => setEditorActive(false), 0);
-          }
-
-          document.addEventListener("mousemove", onMouseMove);
-          document.addEventListener("mouseup", onMouseUp);
-        });
-
-        // monkey patch parent's svgGroup_.setAttribute to toggle pointer-events during block drag
-        try {
-          if (parent && parent.svgGroup_ && typeof parent.svgGroup_.setAttribute === 'function') {
-            const ogSetAtt = parent.svgGroup_.setAttribute;
-            parent.svgGroup_.setAttribute = (...args) => {
-              try {
-                if (args[0] === "class") {
-                  const classStr = typeof args[1] === 'string' ? args[1] : '';
-                  const draggingNow = classStr.includes("blocklyDragging");
-                  const parentIsNowFlyout = !!(parent && parent.isInFlyout);
-                  if (parentIsNowFlyout || draggingNow) {
-                    try { iframe.style.pointerEvents = "none"; } catch (e) {}
-                    try { resizeHandle.style.pointerEvents = "none"; } catch (e) {}
-                    try { if (ScratchBlocks && ScratchBlocks.mainWorkspace) ScratchBlocks.mainWorkspace.allowDragging = true; } catch (e) {}
-                  } else {
-                    // do nothing — allow hover/pointer handlers to enable editor when appropriate
-                  }
-                }
-              } catch (e) {}
-              return ogSetAtt.call(parent.svgGroup_, ...args);
-            };
-          }
-        } catch (e) {}
-      },
-      () => { /* no-create cleanup */ },
-      () => { /* no-remove cleanup */ }
-    );
-  }
-
-  if (isScratchBlocksReady) initBlockTools();
-
-  // clear handlers on workspace update so stale IDs don't hang around and re-init when scratchblocks loads
-  if (vm && vm.runtime && typeof vm.runtime.on === "function") {
-    vm.runtime.on("workspaceUpdate", () => {
-      codeEditorHandlers.clear();
-      isScratchBlocksReady = typeof ScratchBlocks === "object";
-      if (isScratchBlocksReady) {
-        try { initBlockTools(); } catch (e) {}
-      }
-    });
   }
 
   // -------------------------
@@ -573,621 +443,992 @@
           }
         );
       }
+
+      // Setup workspace update listener for ACE editor
+      if (vm && vm.runtime && typeof vm.runtime.on === "function") {
+        vm.runtime.on("workspaceUpdate", () => {
+          codeEditorHandlers.clear();
+          if (!isScratchBlocksReady) {
+            isScratchBlocksReady = typeof ScratchBlocks === "object";
+            if (isScratchBlocksReady) initBlockTools();
+          }
+        });
+      }
     }
 
     getInfo() {
+      // Add blocks that use the ACE editor (similar to reference structure)
+      const blocks = [
+        // evaluate arbitrary JS and return its value wrapped as JSObject
+        {
+          opcode: 'evalJS',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'eval JS [CODE]',
+          arguments: {
+            CODE: {
+              type: Scratch.ArgumentType.CUSTOM,
+              id: "jsoop-codeEditor",
+              defaultValue: "needsInit-JSOOP-0!93$&2%8!($7&#",
+              exemptFromNormalization: true
+            }
+          },
+          ...JSObjectDescriptor.Block
+        },
+
+        // run code without returning (command)
+        {
+          opcode: 'runJS',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'run JS [CODE]',
+          arguments: {
+            CODE: {
+              type: Scratch.ArgumentType.CUSTOM,
+              id: "jsoop-codeEditor",
+              defaultValue: "needsInit-JSOOP-0!93$&2%8!($7&#",
+              exemptFromNormalization: true
+            }
+          }
+        },
+
+        // Legacy blocks (shown if ScratchBlocks is not available)
+        {
+          opcode: 'jsCommand',
+          text: 'run [CODE]',
+          blockType: Scratch.BlockType.COMMAND,
+          hideFromPalette: isScratchBlocksReady && !isSafari,
+          arguments: {
+            CODE: { 
+              type: Scratch.ArgumentType.STRING, 
+              defaultValue: `console.log("Hello!")` 
+            }
+          }
+        },
+        {
+          opcode: 'jsReporter',
+          text: 'run [CODE]',
+          blockType: Scratch.BlockType.REPORTER,
+          disableMonitor: true,
+          allowDropAnywhere: true,
+          hideFromPalette: isScratchBlocksReady && !isSafari,
+          arguments: {
+            CODE: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'Math.random()'
+            }
+          }
+        },
+
+        // Rest of the existing blocks...
+        {
+          opcode: 'new',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'new [CONSTRUCTOR] with args [ARGS]',
+          arguments: {
+            CONSTRUCTOR: JSObjectDescriptor.Argument,
+            ARGS: {
+              ...jwArray.Argument,
+              defaultValue: new jwArray.Type([])
+            }
+          },
+          ...JSObjectDescriptor.Block
+        },
+
+        {
+          opcode: 'callMethod',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'call method [METHOD] on [INSTANCE] with args [ARGS]',
+          arguments: {
+            METHOD: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'toString',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            ARGS: {
+              ...jwArray.Argument,
+              defaultValue: new jwArray.Type([])
+            }
+          },
+          ...JSObjectDescriptor.Block
+        },
+
+        {
+          opcode: 'awaitCallMethod',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'await call method [METHOD] on [INSTANCE] with args [ARGS]',
+          arguments: {
+            METHOD: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'then',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            ARGS: {
+              ...jwArray.Argument,
+              defaultValue: new jwArray.Type([])
+            }
+          },
+          ...JSObjectDescriptor.Block
+        },
+
+        {
+          opcode: 'runMethod',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'run method [METHOD] on [INSTANCE] with args [ARGS]',
+          arguments: {
+            METHOD: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'setName',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            ARGS: {
+              ...jwArray.Argument,
+              defaultValue: new jwArray.Type([])
+            }
+          }
+        },
+
+        {
+          opcode: 'getProp',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'get property [PROP] of [INSTANCE]',
+          arguments: {
+            PROP: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'name',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument
+          }
+        },
+
+        {
+          opcode: 'setPropString',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'set property [PROP] of [INSTANCE] to string [VALUE]',
+          arguments: {
+            PROP: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'name',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            VALUE: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'Bob'
+            }
+          }
+        },
+
+        {
+          opcode: 'setPropJSObject',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'set property [PROP] of [INSTANCE] to JSObject [VALUE]',
+          arguments: {
+            PROP: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'data',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            VALUE: JSObjectDescriptor.Argument
+            }
+        },
+
+        {
+          opcode: 'setPropJwArray',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'set property [PROP] of [INSTANCE] to jwArray [VALUE]',
+          arguments: {
+            PROP: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'items',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            VALUE: {
+              ...jwArray.Argument,
+              defaultValue: new jwArray.Type([])
+            }
+          }
+        },
+
+        {
+          opcode: 'setPropDogeiscutObject',
+          blockType: Scratch.BlockType.COMMAND,
+          text: 'set property [PROP] of [INSTANCE] to dogeiscutObject [VALUE]',
+          arguments: {
+            PROP: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: 'config',
+              exemptFromNormalization: true
+            },
+            INSTANCE: JSObjectDescriptor.Argument,
+            VALUE: vm.dogeiscutObject ? {
+              ...vm.dogeiscutObject.Argument,
+              defaultValue: new vm.dogeiscutObject.Type({})
+            } : {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: '{}'
+            }
+          }
+        },
+
+        {
+          opcode: 'stringify',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'JSON stringify [VALUE]',
+          arguments: {
+            VALUE: {
+              type: Scratch.ArgumentType.STRING,
+              defaultValue: '{"a":1}',
+              exemptFromNormalization: true
+            }
+          }
+        },
+
+        {
+          opcode: 'typeName',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'type name of [INSTANCE]',
+          arguments: {
+            INSTANCE: JSObjectDescriptor.Argument
+          }
+        },
+
+        // ===== SEPARATOR =====
+        {
+          opcode: 'separator1',
+          blockType: Scratch.BlockType.LABEL,
+          text: 'Common JavaScript Constants'
+        },
+
+        // ===== CONSTANT REPORTERS =====
+        {
+          opcode: 'constantMath',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Math',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantNull',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'null',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantUndefined',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'undefined',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantObject',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Object',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantArray',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Array',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantString',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'String',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantNumber',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Number',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantBoolean',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Boolean',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantFunction',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Function',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantAsyncFunction',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'AsyncFunction',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantDate',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Date',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantRegExp',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'RegExp',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantJSON',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'JSON',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantPromise',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Promise',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantError',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Error',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantMap',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Map',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantSet',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Set',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantWeakMap',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'WeakMap',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantWeakSet',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'WeakSet',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantSymbol',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Symbol',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantProxy',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Proxy',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantReflect',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Reflect',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantIntl',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Intl',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantConsole',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'console',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantGlobalThis',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'globalThis',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantInfinity',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'Infinity',
+          ...JSObjectDescriptor.Block
+        },
+        {
+          opcode: 'constantNaN',
+          blockType: Scratch.BlockType.REPORTER,
+          text: 'NaN',
+          ...JSObjectDescriptor.Block
+        },
+      ];
+
       return {
         id: 'jsoop',
         name: 'JS OOP Bridge',
         color1: '#6b8cff',
         color2: '#4968d9',
         color3: '#334fb7',
-        blocks: [
-          // evaluate arbitrary JS and return its value wrapped as JSObject
-          {
-            opcode: 'evalJS',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'eval JS [CODE]',
-            arguments: {
-              CODE: {
-                type: Scratch.ArgumentType.CUSTOM,
-                id: "jsoop-codeEditor",
-                // default identical to what you used earlier
-                defaultValue: 'return {name: "Alice"}',
-                exemptFromNormalization: true
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // run code without returning (command)
-          {
-            opcode: 'runJS',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'run JS [CODE]',
-            arguments: {
-              CODE: {
-                type: Scratch.ArgumentType.CUSTOM,
-                id: "jsoop-codeEditor",
-                defaultValue: 'console.log("hi")',
-                exemptFromNormalization: true
-              }
-            }
-          },
-
-          // construct new instance: new [CONSTRUCTOR] with args [ARGS]
-          {
-            opcode: 'new',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'new [CONSTRUCTOR] with args [ARGS]',
-            arguments: {
-              CONSTRUCTOR: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // call a method with args (args is jwArray)
-          {
-            opcode: 'callMethod',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'call method [METHOD] on [INSTANCE] with args [ARGS]',
-            arguments: {
-              METHOD: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'toString',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            },
-            // returns JSObject (wrapped)
-            ...JSObjectDescriptor.Block
-          },
-
-          // await call method (reporter) - waits if result is a Promise/thenable
-          {
-            opcode: 'awaitCallMethod',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'await call method [METHOD] on [INSTANCE] with args [ARGS]',
-            arguments: {
-              METHOD: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'then',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // run method without returning
-          {
-            opcode: 'runMethod',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'run method [METHOD] on [INSTANCE] with args [ARGS]',
-            arguments: {
-              METHOD: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'setName',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              ARGS: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            }
-          },
-
-          // get property
-          {
-            opcode: 'getProp',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'get property [PROP] of [INSTANCE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'name',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument
-            }
-          },
-
-          // set property with string/number
-          {
-            opcode: 'setPropString',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to string [VALUE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'name',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              VALUE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'Bob'
-              }
-            }
-          },
-
-          // set property with JSObject
-          {
-            opcode: 'setPropJSObject',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to JSObject [VALUE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'data',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              VALUE: JSObjectDescriptor.Argument
-            }
-          },
-
-          // set property with jwArray
-          {
-            opcode: 'setPropJwArray',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to jwArray [VALUE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'items',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              VALUE: {
-                ...jwArray.Argument,
-                defaultValue: new jwArray.Type([])
-              }
-            }
-          },
-
-          // set property with dogeiscutObject
-          {
-            opcode: 'setPropDogeiscutObject',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'set property [PROP] of [INSTANCE] to dogeiscutObject [VALUE]',
-            arguments: {
-              PROP: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: 'config',
-                exemptFromNormalization: true
-              },
-              INSTANCE: JSObjectDescriptor.Argument,
-              VALUE: vm.dogeiscutObject ? {
-                ...vm.dogeiscutObject.Argument,
-                defaultValue: new vm.dogeiscutObject.Type({})
-              } : {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '{}'
-              }
-            }
-          },
-
-          // stringify any value (if JSObject, stringify inner)
-          {
-            opcode: 'stringify',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'JSON stringify [VALUE]',
-            arguments: {
-              VALUE: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: '{"a":1}',
-                exemptFromNormalization: true
-              }
-            }
-          },
-
-          // helper: return type name of instance (for debugging)
-          {
-            opcode: 'typeName',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'type name of [INSTANCE]',
-            arguments: {
-              INSTANCE: JSObjectDescriptor.Argument
-            }
-          },
-
-          // ===== SEPARATOR =====
-          {
-            opcode: 'separator1',
-            blockType: Scratch.BlockType.LABEL,
-            text: 'Common JavaScript Constants'
-          },
-
-          // ===== CONSTANT REPORTERS =====
-          {
-            opcode: 'constantMath',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Math',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantNull',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'null',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantUndefined',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'undefined',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantObject',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Object',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantArray',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Array',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantString',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'String',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantNumber',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Number',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantBoolean',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Boolean',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantFunction',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Function',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantAsyncFunction',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'AsyncFunction',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantDate',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Date',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantRegExp',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'RegExp',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantJSON',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'JSON',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantPromise',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Promise',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantError',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Error',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantMap',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Map',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantSet',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Set',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantWeakMap',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'WeakMap',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantWeakSet',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'WeakSet',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantSymbol',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Symbol',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantProxy',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Proxy',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantReflect',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Reflect',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantIntl',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Intl',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantConsole',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'console',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantGlobalThis',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'globalThis',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantInfinity',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'Infinity',
-            ...JSObjectDescriptor.Block
-          },
-          {
-            opcode: 'constantNaN',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'NaN',
-            ...JSObjectDescriptor.Block
-          },
-        ]
+        blocks: blocks
       };
     }
 
-    // helper funcs
-    toggleSandbox() {
-      if (this.isEditorUnsandboxed) {
-        this.isEditorUnsandboxed = false;
-        this.runtime.extensionManager.refreshBlocks("jsoop");
-      } else {
-        this.runtime.vm.securityManager.canUnsandbox("JavaScript").then((isAllowed) => {
-          if (!isAllowed) return;
-          this.isEditorUnsandboxed = true;
-          this.runtime.extensionManager.refreshBlocks("jsoop");
+    // -------------------------
+    // Helpers used by blocks
+    // -------------------------
+    _wrapMaybe(x) {
+      // If x is already a JSObject wrapper, return it
+      if (x instanceof JSObject) return x;
+      // If x looks like a wrapper-like object (has customId), wrap it
+      if (x && typeof x === 'object' && x.customId) return new JSObject(x);
+      // Wrap whatever it is
+      return new JSObject(x);
+    }
+
+    _convertJwArrayToArgs(jwArrayObj) {
+      if (jwArrayObj instanceof jwArray.Type) {
+        // Convert jwArray to regular array and unwrap any JSObjects
+        return jwArrayObj.array.map(item => {
+          if (item instanceof JSObject) {
+            return item.value;
+          }
+          return item;
         });
       }
+      return [];
     }
 
-    packagerInfo() {
-      alert([
-        "You can run code Unsandboxed in the Project Packager but toggling:",
-        "'Player Options > Remove sandbox on the JavaScript Ext.'",
-        "On!"
-      ].join("\n"));
+    _convertResultToJwArray(result) {
+      // Convert Array results to jwArray for consistency
+      if (Array.isArray(result) && !(result instanceof jwArray.Type)) {
+        return new jwArray.Type(result);
+      }
+      return result;
     }
 
-    parseArguments(argJSON) {
+    _convertToNativeValue(value) {
+      // Convert dogeiscutObject to native object
+      if (value && typeof value === 'object' && value.object && value.customId === 'dogeiscutObject') {
+        return value.object;
+      }
+      // Convert jwArray to native array
+      if (value && typeof value === 'object' && value.array && value.customId === 'jwArray') {
+        return value.array;
+      }
+      // Convert JSObject to its inner value
+      if (value instanceof JSObject) {
+        return value.value;
+      }
+      return value;
+    }
+
+    _convertToSafeString(value) {
+      const nativeValue = this._convertToNativeValue(value);
+      if (nativeValue instanceof JSObject) {
+        return nativeValue.toString();
+      }
       try {
-        if (argJSON && argJSON.constructor?.name === "Object") return argJSON;
-        else {
-          // this is a PM custom return api value
-          argJSON = argJSON.toString();
-          if (typeof argJSON === "object" && !Array.isArray(argJSON)) return argJSON;
-          else return JSON.parse(argJSON);
-        }
-      } catch(err) {
-        console.warn(`Failed to parse Javascript Data JSON: ${err}`);
-        return {};
+        return String(nativeValue);
+      } catch (e) {
+        return '[unconvertible]';
       }
     }
 
-    isLegalFuncName(name) {
+    // ===== CONSTANT REPORTER IMPLEMENTATIONS =====
+    constantMath() {
+      return new JSObject(Math);
+    }
+
+    constantNull() {
+      return new JSObject(null);
+    }
+
+    constantUndefined() {
+      return new JSObject(undefined);
+    }
+
+    constantObject() {
+      return new JSObject(Object);
+    }
+
+    constantArray() {
+      return new JSObject(Array);
+    }
+
+    constantString() {
+      return new JSObject(String);
+    }
+
+    constantNumber() {
+      return new JSObject(Number);
+    }
+
+    constantBoolean() {
+      return new JSObject(Boolean);
+    }
+
+    constantFunction() {
+      return new JSObject(Function);
+    }
+    
+    constantAsyncFunction() {
+      return new JSObject(Object.getPrototypeOf(async function(){}).constructor);
+    }
+
+    constantDate() {
+      return new JSObject(Date);
+    }
+
+    constantRegExp() {
+      return new JSObject(RegExp);
+    }
+
+    constantJSON() {
+      return new JSObject(JSON);
+    }
+
+    constantPromise() {
+      return new JSObject(Promise);
+    }
+
+    constantError() {
+      return new JSObject(Error);
+    }
+
+    constantMap() {
+      return new JSObject(Map);
+    }
+
+    constantSet() {
+      return new JSObject(Set);
+    }
+
+    constantWeakMap() {
+      return new JSObject(WeakMap);
+    }
+
+    constantWeakSet() {
+      return new JSObject(WeakSet);
+    }
+
+    constantSymbol() {
+      return new JSObject(Symbol);
+    }
+
+    constantProxy() {
+      return new JSObject(Proxy);
+    }
+
+    constantReflect() {
+      return new JSObject(Reflect);
+    }
+
+    constantIntl() {
+      return new JSObject(Intl);
+    }
+
+    constantConsole() {
+      return new JSObject(console);
+    }
+
+    constantGlobalThis() {
+      return new JSObject(globalThis);
+    }
+
+    constantInfinity() {
+      return new JSObject(Infinity);
+    }
+
+    constantNaN() {
+      return new JSObject(NaN);
+    }
+
+    // ===== EXISTING BLOCK IMPLEMENTATIONS =====
+    
+    // evaluate code and return wrapped result
+    evalJS({ CODE }) {
+      if (DEBUG) console.dir({ action: 'evalJS(entry)', CODE });
       try {
-        new Function(`function ${name}(){}`);
-        return true;
-      } catch {
-        return false;
+        // Use Function to execute user code and return its result.
+        // We wrap code in an IIFE so users can write statements and final value is returned.
+        // Note: if CODE uses top-level return, it will error; better to wrap
+        const fn = new Function('"use strict"; return (function(){ ' + CODE + ' })()');
+        const result = fn();
+        if (DEBUG) console.dir({ action: 'evalJS(resultRaw)', result });
+        const wrapped = JSObject.toType(result);
+        if (DEBUG) console.dir({ action: 'evalJS(wrapped)', wrapped });
+        return wrapped;
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'evalJS(error)', error: err });
+        // return an object that holds the error string
+        return new JSObject({ error: String(err) });
       }
     }
 
-    async runCode(code, binds) {
-      let binders = "";
-
-      /* inject global functions */
-      if (this.globalFuncs && this.globalFuncs.size > 0) {
-        const funcs = this.globalFuncs.entries().toArray();
-        for (const [name, funcData] of funcs) {
-          if (funcData.isBlockCode) {
-            binders += `const ${name} = async function(...args) {\n`;
-            if (funcData.id) {
-              binders += `return new Promise((resolve) => {\n`;
-              binders += `const target = vm.runtime.getTargetById("${funcData.origin}");\n`;
-              binders += `const thread = vm.runtime._pushThread("${funcData.id}", target);\n`;
-              binders += `const threadID = thread.getId();\n`;
-              binders += `thread.jsExtData = [...args];\n`;
-
-              /* listener for thread returns */
-              binders += `const endHandler = (t) => {\n`;
-              binders += `if (t.getId() === thread.getId()) {\n`;
-              binders += `vm.runtime.removeListener("THREAD_FINISHED", endHandler);\n`;
-              binders += `resolve(t.justReported);\n`;
-              binders += "}\n";
-              binders += "};\n";
-              binders += `vm.runtime.on("THREAD_FINISHED", endHandler);\n`;
-              binders += "});\n";
-            }
-            binders += "}\n";
-          } else {
-            binders += `const ${name} = ${funcData.code}\n`;
-          }
-        }
+    // run code without returning (command)
+    runJS({ CODE }) {
+      if (DEBUG) console.dir({ action: 'runJS(entry)', CODE });
+      try {
+        const fn = new Function('"use strict"; ' + CODE);
+        fn();
+        if (DEBUG) console.dir({ action: 'runJS(done)' });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'runJS(error)', error: err });
       }
+    }
 
-      /* inject arguments */
-      if (binds !== undefined) {
-        for (let [name, value] of Object.entries(binds)) {
-          // normalize values
-          switch (typeof value) {
-            case "string":
-              value = `"${value}"`;
-              break;
-            case "object":
-              value = JSON.stringify(value);
-              break;
-            default: break;
-          }
-          binders += `const ${name} = ${value};\n`;
+    // Legacy block implementations
+    jsCommand({ CODE }) {
+      return this.runJS({ CODE });
+    }
+
+    jsReporter({ CODE }) {
+      return this.evalJS({ CODE });
+    }
+
+    // construct new instance using constructor function/class
+    new({ CONSTRUCTOR, ARGS }) {
+      if (DEBUG) console.dir({ action: 'new(entry)', CONSTRUCTOR, ARGS });
+      try {
+        const ctorWrap = JSObject.toType(CONSTRUCTOR);
+        const ctor = ctorWrap.value;
+        const args = this._convertJwArrayToArgs(ARGS);
+        if (typeof ctor !== 'function') {
+          return new JSObject({ error: 'Constructor is not a function' });
         }
-      }
-
-      /* 'extensionRuntimeOptions.javascriptUnsandboxed' is used for packager */
-      if (this.isEditorUnsandboxed || this.runtime.extensionRuntimeOptions && this.runtime.extensionRuntimeOptions.javascriptUnsandboxed === true) {
-        let result;
         try {
-          // eslint-disable-next-line no-eval
-          result = await runCode(binders + code);
+          const instance = Reflect.construct(ctor, args);
+          if (DEBUG) console.dir({ action: 'new(result)', instance });
+          const result = JSObject.toType(instance);
+          return this._convertResultToJwArray(result);
         } catch (err) {
-          throw err;
+          if (DEBUG) console.dir({ action: 'new(error)', error: err });
+          return new JSObject({ error: String(err) });
         }
-        return result;
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'new(errorOuter)', error: err });
+        return new JSObject({ error: String(err) });
       }
-      // we are sandboxed
-      const codeRunner = `Object.getPrototypeOf(async function() {}).constructor(\`${(binders + code).replaceAll("`", "\\`")}\`)()`;
-      return new Promise((resolve) => {
-        SandboxRunner.execute(codeRunner).then(result => {
-          // result is { value: any, success: boolean }
-          // in PM, we always ignore errors
-          return resolve(result.value);
-        });
-      });
     }
 
-    // block funcs
-    codeInput(args) {
-      return args.CODE;
-    }
+    // call method and return wrapped result
+    callMethod({ METHOD, INSTANCE, ARGS }) {
+      if (DEBUG) console.dir({ action: 'callMethod(entry)', METHOD, INSTANCE, ARGS });
+      // convert received INSTANCE to wrapper if needed
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = INSTANCE.value;
 
-    async jsCommand(args) {
-      await this.runCode(Cast.toString(args.CODE));
-    }
-    async jsCommandBinded(args) {
-      await this.runCode(
-        Cast.toString(args.CODE),
-        this.parseArguments(args.ARGS)
-      );
-    }
+      // convert jwArray args to regular array
+      const args = this._convertJwArrayToArgs(ARGS);
 
-    async jsReporter(args) {
-      return await this.runCode(Cast.toString(args.CODE));
-    }
-    async jsReporterBinded(args) {
-      return await this.runCode(
-        Cast.toString(args.CODE),
-        this.parseArguments(args.ARGS)
-      );
-    }
-
-    async jsBoolean(args) {
-      const possiblePromise = await this.runCode(Cast.toString(args.CODE));
-      /* force output a boolean */
-      if (possiblePromise && typeof possiblePromise.then === "function") {
-        return (async () => {
-          const value = await possiblePromise;
-          return Cast.toBoolean(value);
-        })();
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+        // for primitive targets, try to call methods only if they exist on the primitive's prototype
+        const primProto = Object.getPrototypeOf(target);
+        const fnPrim = primProto && primProto[METHOD];
+        if (typeof fnPrim === 'function') {
+          try {
+            const result = fnPrim.apply(target, args);
+            if (DEBUG) console.dir({ action: 'callMethod(resultPrimitive)', result });
+            const wrappedResult = JSObject.toType(result);
+            return this._convertResultToJwArray(wrappedResult);
+          } catch (err) {
+            if (DEBUG) console.dir({ action: 'callMethod(errorPrimitive)', error: err });
+            return new JSObject({ error: String(err) });
+          }
+        }
+        return new JSObject({ error: `No method ${METHOD} on target` });
       }
-      return Cast.toBoolean(possiblePromise);
-    }
-    async jsBooleanBinded(args) {
-      const possiblePromise = await this.runCode(
-        Cast.toString(args.CODE),
-        this.parseArguments(args.ARGS)
-      );
-      /* force output a boolean */
-      if (possiblePromise && typeof possiblePromise.then === "function") {
-        return (async () => {
-          const value = await possiblePromise;
-          return Cast.toBoolean(value);
-        })();
+
+      // find method on object
+      const fn = target[METHOD];
+      if (typeof fn !== 'function') {
+        // maybe the method is defined on the prototype but non-enumerable
+        const proto = Object.getPrototypeOf(target);
+        const fnProto = proto && proto[METHOD];
+        if (typeof fnProto === 'function') {
+          try {
+            const result = fnProto.apply(target, args);
+            if (DEBUG) console.dir({ action: 'callMethod(resultProto)', result });
+            const wrappedResult = JSObject.toType(result);
+            return this._convertResultToJwArray(wrappedResult);
+          } catch (err) {
+            if (DEBUG) console.dir({ action: 'callMethod(errorProto)', error: err });
+            return new JSObject({ error: String(err) });
+          }
+        }
+
+        return new JSObject({ error: `No method ${METHOD}` });
       }
-      return Cast.toBoolean(possiblePromise);
+
+      try {
+        const result = fn.apply(target, args);
+        if (DEBUG) console.dir({ action: 'callMethod(result)', result });
+        const wrappedResult = JSObject.toType(result);
+        return this._convertResultToJwArray(wrappedResult);
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'callMethod(error)', error: err });
+        return new JSObject({ error: String(err) });
+      }
     }
 
-    defineGlobalFunc(args) {
-      const funcName = Cast.toString(args.NAME);
-      if (this.isLegalFuncName(funcName)) {
-        const funcRegex = /^function\s*\([^)]*\)\s*\{[\s\S]*\}$/;
-        const lambRegex = /^\([^)]*\)\s*=>\s*(\{[\s\S]*\}|[^{}][^\n]*)$/;
-        const code = Cast.toString(args.CODE).trim();
-        if (funcRegex.test(code) || lambRegex.test(code)) this.globalFuncs.set(funcName, { code, isBlockCode: false });
-        else throw new Error("Global Code must be 'function' or 'lambda'!");
+    // await call method (reporter) - waits if result is a Promise/thenable
+    async awaitCallMethod({ METHOD, INSTANCE, ARGS }) {
+      if (DEBUG) console.dir({ action: 'awaitCallMethod(entry)', METHOD, INSTANCE, ARGS });
+
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = INSTANCE.value;
+      const args = this._convertJwArrayToArgs(ARGS);
+
+      // handle primitive targets by checking their prototype
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+        const primProto = Object.getPrototypeOf(target);
+        const fnPrim = primProto && primProto[METHOD];
+        if (typeof fnPrim === 'function') {
+          try {
+            const res = fnPrim.apply(target, args);
+            if (res && typeof res.then === 'function') {
+              const awaited = await res;
+              if (DEBUG) console.dir({ action: 'awaitCallMethod(resultPrimitiveAwaited)', awaited });
+              const wrappedResult = JSObject.toType(awaited);
+              return this._convertResultToJwArray(wrappedResult);
+            }
+            if (DEBUG) console.dir({ action: 'awaitCallMethod(resultPrimitive)', res });
+            const wrappedResult = JSObject.toType(res);
+            return this._convertResultToJwArray(wrappedResult);
+          } catch (err) {
+            if (DEBUG) console.dir({ action: 'awaitCallMethod(errorPrimitive)', error: err });
+            return new JSObject({ error: String(err) });
+          }
+        }
+        return new JSObject({ error: `No method ${METHOD} on target` });
+      }
+
+      // find method on object (own property first, then prototype)
+      let fn = target[METHOD];
+      if (typeof fn !== 'function') {
+        const proto = Object.getPrototypeOf(target);
+        fn = proto && proto[METHOD];
+      }
+      if (typeof fn !== 'function') {
+        return new JSObject({ error: `No method ${METHOD}` });
+      }
+
+      try {
+        const result = fn.apply(target, args);
+        if (result && typeof result.then === 'function') {
+          // await if it's thenable
+          const awaited = await result;
+          if (DEBUG) console.dir({ action: 'awaitCallMethod(awaited)', awaited });
+          const wrappedResult = JSObject.toType(awaited);
+          return this._convertResultToJwArray(wrappedResult);
+        }
+        if (DEBUG) console.dir({ action: 'awaitCallMethod(result)', result });
+        const wrappedResult = JSObject.toType(result);
+        return this._convertResultToJwArray(wrappedResult);
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'awaitCallMethod(error)', error: err });
+        return new JSObject({ error: String(err) });
+      }
+    }
+
+    // run method, no return
+    runMethod({ METHOD, INSTANCE, ARGS }) {
+      if (DEBUG) console.dir({ action: 'runMethod(entry)', METHOD, INSTANCE, ARGS });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = INSTANCE.value;
+      const args = this._convertJwArrayToArgs(ARGS);
+
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+        const primProto = Object.getPrototypeOf(target);
+        const fnPrim = primProto && primProto[METHOD];
+        if (typeof fnPrim === 'function') {
+          try {
+            fnPrim.apply(target, args);
+            if (DEBUG) console.dir({ action: 'runMethod(donePrimitive)' });
+            return;
+          } catch (err) {
+            if (DEBUG) console.dir({ action: 'runMethod(errorPrimitive)', error: err });
+            return;
+          }
+        }
+        if (DEBUG) console.dir({ action: 'runMethod(noMethod)' });
+        return;
+      }
+
+      const fn = target[METHOD] || (Object.getPrototypeOf(target) && Object.getPrototypeOf(target)[METHOD]);
+      if (typeof fn === 'function') {
+        try {
+          fn.apply(target, args);
+          if (DEBUG) console.dir({ action: 'runMethod(done' });
+        } catch (err) {
+          if (DEBUG) console.dir({ action: 'runMethod(error)', error: err });
+        }
       } else {
-        throw new Error("Illegal Function Name!");
+        if (DEBUG) console.dir({ action: 'runMethod(noMethod)', METHOD });
       }
     }
 
-    defineScratchCode(args, util) {
-      const funcName = Cast.toString(args.NAME);
-      if (this.isLegalFuncName(funcName)) {
-        const branch = util.thread.blockContainer.getBranch(util.thread.peekStack(), 1);
-        this.globalFuncs.set(funcName, { id: branch, origin: util.target.id, isBlockCode: true });
-      } else {
-        throw new Error("Illegal Function Name!");
+    // get property (returns safe string)
+    getProp({ PROP, INSTANCE }) {
+      if (DEBUG) console.dir({ action: 'getProp(entry)', PROP, INSTANCE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      
+      try {
+        const val = target[PROP];
+        if (DEBUG) console.dir({ action: 'getProp(result)', val });
+        return this._convertToSafeString(val);
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'getProp(error)', error: err });
+        return `[Error: ${String(err)}]`;
       }
     }
 
-    argumentReport(_, util) {
-      return util.thread.jsExtData ? JSON.stringify(util.thread.jsExtData) : "[]";
+    // set property with string/number
+    setPropString({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropString(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+
+      // attempt to parse VALUE (try JSON -> number/boolean/null/array/object), fallback to raw string
+      let parsed;
+      try {
+        parsed = JSON.parse(VALUE);
+      } catch {
+        // if VALUE looks like bare number/true/false, try simple coercion
+        const t = VALUE && VALUE.trim();
+        if (/^-?\d+(\.\d+)?$/.test(t)) parsed = Number(t);
+        else if (t === 'true') parsed = true;
+        else if (t === 'false') parsed = false;
+        else parsed = VALUE;
+      }
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = parsed;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = parsed;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropString(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropString(error)', error: err });
+      }
     }
 
-    deleteGlobalFunc(args) {
-      this.globalFuncs.delete(Cast.toString(args.NAME));
+    // set property with JSObject
+    setPropJSObject({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropJSObject(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropJSObject(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropJSObject(error)', error: err });
+      }
     }
 
-    returnData(args, util) {
-      util.thread.justReported = args.DATA;
-      // Delay the Deletion of this Thread
-      if (util.stackTimerNeedsInit()) {
-        util.startStackTimer(0);
-        this.runtime.requestRedraw();
-        util.yield();
-      } else if (!util.stackTimerFinished()) util.yield();
-      util.thread.stopThisScript();
+    // set property with jwArray
+    setPropJwArray({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropJwArray(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropJwArray(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropJwArray(error)', error: err });
+      }
+    }
+
+    // set property with dogeiscutObject
+    setPropDogeiscutObject({ PROP, INSTANCE, VALUE }) {
+      if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(entry)', PROP, INSTANCE, VALUE });
+      INSTANCE = JSObject.toType(INSTANCE);
+      const target = this._convertToNativeValue(INSTANCE.value);
+      const value = this._convertToNativeValue(VALUE);
+
+      try {
+        if (target && (typeof target === 'object' || typeof target === 'function')) {
+          target[PROP] = value;
+        } else {
+          // primitives: can't set property persistently — wrap to object and set
+          const newObj = Object(target);
+          newObj[PROP] = value;
+          INSTANCE.value = newObj;
+        }
+        if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(done)', target: INSTANCE.value });
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'setPropDogeiscutObject(error)', error: err });
+      }
+    }
+
+    // JSON stringify any value (if JSObject, stringify inner)
+    stringify({ VALUE }) {
+      // VALUE may be a JSObject wrapper or some other raw. If it's a string in the Scratch sense it may be supplied as string.
+      try {
+        let inner = VALUE;
+        // if it's a wrapper-like, unwrap
+        if (VALUE && typeof VALUE === 'object' && VALUE.customId === 'jsObject') {
+          inner = VALUE.value;
+        } else if (VALUE instanceof JSObject) {
+          inner = VALUE.value;
+        } else {
+          // attempt to parse as JSON; often user will pass JSON string or primitive string
+          try {
+            inner = JSON.parse(VALUE);
+          } catch { /* leave as-is */ }
+        }
+        try {
+          return safeSerialize(inner);
+        } catch (e) {
+          // functions -> toString
+          if (typeof inner === 'function') return inner.toString();
+          // fallback
+          return String(inner);
+        }
+      } catch (err) {
+        if (DEBUG) console.dir({ action: 'stringify(error)', error: err });
+        return String(VALUE);
+      }
+    }
+
+    // helper to get the type name (constructor name / primitive)
+    typeName({ INSTANCE }) {
+      INSTANCE = JSObject.toType(INSTANCE);
+      const v = this._convertToNativeValue(INSTANCE.value);
+      if (v === null) return 'null';
+      if (v === undefined) return 'undefined';
+      if (typeof v === 'function') return `function ${v.name || '(anonymous)'}`;
+      if (typeof v === 'object') return v.constructor && v.constructor.name ? v.constructor.name : 'Object';
+      return typeof v;
     }
   }
 
