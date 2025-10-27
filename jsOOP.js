@@ -314,7 +314,7 @@
             text: 'eval JS [CODE]',
             arguments: {
               CODE: {
-                type: ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
+                type: Scratch.ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
                 defaultValue: 'return {name: "Alice"}',
                   exemptFromNormalization: true
               }
@@ -329,7 +329,7 @@
             text: 'run JS [CODE]',
             arguments: {
               CODE: {
-                type: ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
+                type: Scratch. ArgumentType.CUSTOM, id: "SPjavascriptV2-codeEditor",
                 defaultValue: 'console.log("hi")',
                   exemptFromNormalization: true
               }
