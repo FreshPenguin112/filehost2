@@ -16,11 +16,6 @@
   // Load dogeiscutObject extension if not already loaded
   if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
 
-  // Check if ScratchBlocks is available
-  const isScratchBlocksReady = typeof ScratchBlocks === "object";
-  const codeEditorHandlers = new Map();
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
   // === BigInt-safe JSON serializer (handles BigInt -> number/string and circular refs) ===
   function safeSerialize(obj) {
     const seen = new WeakSet();
@@ -44,9 +39,14 @@
     }, 2);
   }
 
-  // Initialize code editor if ScratchBlocks is available
-  function initBlockTools() {
-    if (!isScratchBlocksReady) return;
+  // -------------------------
+  // ACE editor custom field for code inputs (based on nodejs extension)
+  // -------------------------
+  const codeEditorHandlers = new Map();
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  function initAceEditor() {
+    if (typeof ScratchBlocks !== "object") return;
 
     window.addEventListener("message", (e) => {
       if (e.data?.type === "code-change") {
@@ -66,7 +66,6 @@
       "jsoop-codeEditor",
       recyclableDiv,
       (field) => {
-        /* on init */
         const inputObject = field.inputSource;
         const input = inputObject.firstChild;
         const srcBlock = field.sourceBlock_;
@@ -82,6 +81,7 @@
         const html = `
 <!DOCTYPE html>
 <html><head>
+  <meta charset="utf-8"/>
   <style>html, body, #editor {background: #272822; margin: 0; padding: 0; height: 100%; width: 100%;}</style>
 </head>
 <body>
@@ -91,18 +91,24 @@
   <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.3/src-min-noconflict/theme-monokai.js"></script>
   <script>
     window.addEventListener("message", function(e) {
-      const editor = ace.edit("editor");
-      editor.setOptions({
-        fontSize: "15px", showPrintMargin: false,
-        highlightActiveLine: true, useWorker: false
-      });
+      try {
+        const editor = ace.edit("editor");
+        editor.setOptions({
+          fontSize: "15px", showPrintMargin: false,
+          highlightActiveLine: true, useWorker: false
+        });
 
-      editor.session.setMode("ace/mode/javascript");
-      editor.setTheme("ace/theme/monokai");
-      editor.setValue(e.data.value);
-      editor.session.on("change", () => parent.postMessage({
-        type: "code-change", id: "${srcBlock.id}", value: editor.getValue()
-      }, "*"));
+        editor.session.setMode("ace/mode/javascript");
+        editor.setTheme("ace/theme/monokai");
+        editor.setValue(e.data.value || "");
+        editor.session.on("change", function() {
+          parent.postMessage({
+            type: "code-change", id: "${srcBlock.id}", value: editor.getValue()
+          }, "*");
+        });
+      } catch (err) {
+        parent.postMessage({ type: "code-change", id: "${srcBlock.id}", value: e.data.value || "" }, "*");
+      }
     }, { once: true });
   </script>
 </body>
@@ -111,13 +117,11 @@
         input.replaceChild(iframe, input.firstChild);
         iframe.onload = () => {
           let value = field.getValue();
-          if (value === "needsInit") {
-            const outerType = srcBlock.parentBlock_.type;
-            if (outerType.endsWith("evalJSEditor")) value = 'return {name: "Alice"}';
-            else if (outerType.endsWith("runJSEditor")) value = 'console.log("hi")';
+          // If no value, keep the block's default; otherwise use stored value.
+          if (value === undefined || value === null) {
+            value = "";
             field.setValue(value);
           }
-
           iframe.contentWindow.postMessage({ value }, "*");
         };
 
@@ -152,8 +156,10 @@
             resizeHandle.style.top = `${newH - 40}px`;
             inputObject.setAttribute("width", newW);
             inputObject.setAttribute("height", newH);
-            field.size_.width = newW;
-            field.size_.height = newH - 10;
+            if (field.size_) {
+              field.size_.width = newW;
+              field.size_.height = newH - 10;
+            }
             if (srcBlock?.render) srcBlock.render();
           }
 
@@ -169,8 +175,7 @@
           document.addEventListener("mouseup", onMouseUp);
         });
 
-        // monkey patch this function since MutationObservers will lag
-        // this patch allows dragging blocks to not act weird with mouse touching
+        // patch svg class setter so pointer-events toggle properly during drag
         const ogSetAtt = parent.svgGroup_.setAttribute;
         parent.svgGroup_.setAttribute = (...args) => {
           if (args[0] === "class") {
@@ -183,15 +188,20 @@
             }
           }
           ogSetAtt.call(parent.svgGroup_, ...args);
-        }
+        };
       },
-      () => { /* no work needs to be done here */ },
-      () => { /* no work needs to be done here */ }
+      () => { /* no create-time cleanup needed */ },
+      () => { /* no post-remove cleanup needed */ }
     );
   }
 
-  // Initialize block tools if ScratchBlocks is ready
-  if (isScratchBlocksReady) initBlockTools();
+  // run initialization if ScratchBlocks already loaded
+  if (typeof ScratchBlocks === "object") initAceEditor();
+
+  // clear handlers on workspace update so stale IDs don't hang around
+  if (vm && vm.runtime && typeof vm.runtime.on === "function") {
+    vm.runtime.on("workspaceUpdate", () => codeEditorHandlers.clear());
+  }
 
   // -------------------------
   // JSObject wrapper (custom type)
@@ -449,21 +459,9 @@
           }
         );
       }
-
-      // Listen for workspace updates to clear code editor handlers
-      if (vm && vm.runtime) {
-        vm.runtime.on('workspaceUpdate', () => {
-          codeEditorHandlers.clear();
-          if (!isScratchBlocksReady && typeof ScratchBlocks === "object") {
-            initBlockTools();
-          }
-        });
-      }
     }
 
     getInfo() {
-      const useCodeEditor = isScratchBlocksReady && !isSafari;
-
       return {
         id: 'jsoop',
         name: 'JS OOP Bridge',
@@ -471,57 +469,15 @@
         color2: '#4968d9',
         color3: '#334fb7',
         blocks: [
-          // Code input block (hidden, used by fill-in)
-          {
-            opcode: 'codeInput',
-            blockType: Scratch.BlockType.REPORTER,
-            text: '[CODE]',
-            hideFromPalette: true,
-            arguments: {
-              CODE: {
-                type: Scratch.ArgumentType.CUSTOM,
-                customId: "jsoop-codeEditor",
-                defaultValue: "needsInit"
-              }
-            }
-          },
-
-          // evaluate arbitrary JS with code editor
-          {
-            opcode: 'evalJSEditor',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'eval JS [CODE]',
-            hideFromPalette: !useCodeEditor,
-            arguments: {
-              CODE: {
-                fillIn: 'codeInput'
-              }
-            },
-            ...JSObjectDescriptor.Block
-          },
-
-          // run code without returning with code editor
-          {
-            opcode: 'runJSEditor',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'run JS [CODE]',
-            hideFromPalette: !useCodeEditor,
-            arguments: {
-              CODE: {
-                fillIn: 'codeInput'
-              }
-            }
-          },
-
-          // evaluate arbitrary JS with string input (fallback)
+          // evaluate arbitrary JS and return its value wrapped as JSObject
           {
             opcode: 'evalJS',
             blockType: Scratch.BlockType.REPORTER,
             text: 'eval JS [CODE]',
-            hideFromPalette: useCodeEditor,
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.STRING,
+                type: Scratch.ArgumentType.CUSTOM,
+                id: "jsoop-codeEditor",
                 defaultValue: 'return {name: "Alice"}',
                 exemptFromNormalization: true
               }
@@ -529,15 +485,15 @@
             ...JSObjectDescriptor.Block
           },
 
-          // run code without returning with string input (fallback)
+          // run code without returning (command)
           {
             opcode: 'runJS',
             blockType: Scratch.BlockType.COMMAND,
             text: 'run JS [CODE]',
-            hideFromPalette: useCodeEditor,
             arguments: {
               CODE: {
-                type: Scratch.ArgumentType.STRING,
+                type: Scratch.ArgumentType.CUSTOM,
+                id: "jsoop-codeEditor",
                 defaultValue: 'console.log("hi")',
                 exemptFromNormalization: true
               }
@@ -1080,21 +1036,6 @@
 
     // ===== EXISTING BLOCK IMPLEMENTATIONS =====
     
-    // Code input handler
-    codeInput(args) {
-      return args.CODE;
-    }
-
-    // evaluate code and return wrapped result (with code editor)
-    evalJSEditor({ CODE }) {
-      return this.evalJS({ CODE });
-    }
-
-    // run code without returning (with code editor)
-    runJSEditor({ CODE }) {
-      return this.runJS({ CODE });
-    }
-
     // evaluate code and return wrapped result
     evalJS({ CODE }) {
       if (DEBUG) console.dir({ action: 'evalJS(entry)', CODE });
