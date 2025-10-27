@@ -631,7 +631,7 @@
                 {
                     opcode: 'setPropJSObject',
                     blockType: Scratch.BlockType.COMMAND,
-                    text: 'set property [PROP] of [INSTANCE] to JSObject [VALUE]',
+                    text: 'set property [PROP] of [INSTANCE] to JavaScript Object [VALUE]',
                     arguments: {
                         PROP: {
                             type: Scratch.ArgumentType.STRING,
@@ -646,7 +646,7 @@
                 {
                     opcode: 'setPropJwArray',
                     blockType: Scratch.BlockType.COMMAND,
-                    text: 'set property [PROP] of [INSTANCE] to jwArray [VALUE]',
+                    text: 'set property [PROP] of [INSTANCE] to Array [VALUE]',
                     arguments: {
                         PROP: {
                             type: Scratch.ArgumentType.STRING,
@@ -664,7 +664,7 @@
                 {
                     opcode: 'setPropDogeiscutObject',
                     blockType: Scratch.BlockType.COMMAND,
-                    text: 'set property [PROP] of [INSTANCE] to dogeiscutObject [VALUE]',
+                    text: 'set property [PROP] of [INSTANCE] to Object [VALUE]',
                     arguments: {
                         PROP: {
                             type: Scratch.ArgumentType.STRING,
