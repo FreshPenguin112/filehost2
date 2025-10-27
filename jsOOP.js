@@ -1,4 +1,4 @@
-(function(Scratch) {
+(async function(Scratch) {
     'use strict';
 
     if (!Scratch.extensions || !Scratch.extensions.unsandboxed) {
@@ -11,7 +11,9 @@
     if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
     const jwArray = vm.jwArray;
 
-    if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
+    console.log("Loading objects extension...");
+    await vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
+    console.log("Loaded!");
 
     let isScratchBlocksReady = typeof ScratchBlocks === "object";
     const codeEditorHandlers = new Map();
