@@ -876,7 +876,7 @@
 
             return {
                 id: 'jsoop',
-                name: 'JS OOP Bridge',
+                name: 'JS OOP',
                 color1: '#6b8cff',
                 color2: '#4968d9',
                 color3: '#334fb7',
