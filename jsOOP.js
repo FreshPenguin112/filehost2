@@ -13,7 +13,26 @@
     if (!vm.jwArray) vm.extensionManager.loadExtensionIdSync('jwArray');
     const jwArray = vm.jwArray;
 
-    if (!vm.dogeiscutObject) vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js");
+    // Wait a few seconds before trying to load dogeiscutObject to give the project a chance to load it first
+    let dogeiscutObjectLoaded = !!vm.dogeiscutObject;
+    if (!vm.dogeiscutObject) {
+        setTimeout(() => {
+            if (!vm.dogeiscutObject) {
+                vm.extensionManager.loadExtensionURL("https://extensions.penguinmod.com/extensions/DogeisCut/dogeiscutObject.js")
+                    .then(() => {
+                        dogeiscutObjectLoaded = true;
+                        if (DEBUG) console.log('dogeiscutObject loaded successfully');
+                    })
+                    .catch((error) => {
+                        if (DEBUG) console.error('Failed to load dogeiscutObject:', error);
+                        // Continue even if loading fails
+                        dogeiscutObjectLoaded = false;
+                    });
+            } else {
+                dogeiscutObjectLoaded = true;
+            }
+        }, 3000); // Wait 3 seconds
+    }
 
     let isScratchBlocksReady = typeof ScratchBlocks === "object";
     const codeEditorHandlers = new Map();
@@ -193,7 +212,6 @@
         }
 
         constructor(value) {
-
             this.value = value;
         }
 
