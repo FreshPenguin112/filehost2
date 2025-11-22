@@ -38,6 +38,9 @@
     const codeEditorHandlers = new Map();
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
+    // Store for function hat blocks
+    const functionHats = new Map();
+
     function initBlockTools() {
         window.addEventListener("message", (e) => {
             if (e.data?.type === "code-change") {
@@ -470,11 +473,14 @@
                     }
                 });
             }
+          this.targetHatLabel = "";
         }
 
         getInfo() {
 
-            const blocks = [{
+            const blocks = [
+                // ... existing blocks remain the same ...
+                {
                     opcode: "codeInput",
                     color1: "#6b8cff",
                     color2: "#6b8cff",
@@ -546,6 +552,32 @@
                             defaultValue: 'Math.random()'
                         }
                     }
+                },
+
+                // NEW BLOCKS: Function Hat and Function Generator
+                {
+                    opcode: 'functionHat',
+                    text: 'when function [LABEL] is called',
+                    blockType: Scratch.BlockType.HAT,
+                    isEdgeActivated: false,
+                    arguments: {
+                        LABEL: {
+                            type: Scratch.ArgumentType.STRING,
+                            defaultValue: 'myFunction',
+                        }
+                    }
+                },
+                {
+                    opcode: 'functionReporter',
+                    text: 'generate function for label [LABEL]',
+                    blockType: Scratch.BlockType.REPORTER,
+                    arguments: {
+                        LABEL: {
+                            type: Scratch.ArgumentType.STRING,
+                            defaultValue: 'myFunction',
+                        }
+                    },
+                    ...JSObjectDescriptor.Block
                 },
 
                 {
@@ -634,7 +666,7 @@
                         }
                     }
                 },
-                
+
                 {
                     opcode: 'callFunction',
                     blockType: Scratch.BlockType.REPORTER,
@@ -1033,6 +1065,22 @@
                 color3: '#334fb7',
                 blocks: blocks
             };
+        }
+
+        functionHat(args, util) {
+            return Scratch.Cast.toString(args.LABEL) == util.thread.targetHatLabel;
+        }
+
+        functionReporter(args) {
+            const label = args.LABEL;
+
+            // Create an anonymous function that will trigger all hat blocks with this label
+            const triggerFunction = (functionArgs) => {
+              for (const thread of vm.runtime.startHats("jsoop_functionHat")) thread.targetHatLabel = label;
+            };
+
+            // Return the function wrapped in a JSObject
+            return new JSObject(triggerFunction);
         }
 
         _wrapMaybe(x) {
