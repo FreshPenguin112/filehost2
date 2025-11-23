@@ -1,6 +1,6 @@
 /* jshint esversion:11 */
 
-(function(Scratch) {
+(function (Scratch) {
     'use strict';
 
     if (!Scratch.extensions || !Scratch.extensions.unsandboxed) {
@@ -188,7 +188,7 @@
 
     function safeSerialize(obj) {
         const seen = new WeakSet();
-        return JSON.stringify(obj, function(key, value) {
+        return JSON.stringify(obj, function (key, value) {
 
             if (typeof value === 'bigint') {
                 const minSafe = BigInt(Number.MIN_SAFE_INTEGER);
@@ -473,7 +473,7 @@
                     }
                 });
             }
-          this.targetHatLabel = "";
+            this.runtime = Scratch.vm.runtime
         }
 
         getInfo() {
@@ -496,6 +496,15 @@
                             defaultValue: "jsoop-init-xyz789@!"
                         }
                     },
+                },
+
+                {
+                    opcode: "argsReporter",
+                    text: "args",
+                    blockType: Scratch.BlockType.REPORTER,
+                    hideFromPalette: true,
+                    canDragDuplicate: true,
+                    disableMonitor: true,
                 },
 
                 {
@@ -554,19 +563,43 @@
                     }
                 },
 
-                // NEW BLOCKS: Function Hat and Function Generator
+                {
+                    opcode: "functionHatNotice",
+                    blockType: Scratch.BlockType.BUTTON,
+                    text: "Notice, read me!"
+                },
+                
                 {
                     opcode: 'functionHat',
-                    text: 'when function [LABEL] is called',
+                    text: 'when function [LABEL] is called [ARGS]',
                     blockType: Scratch.BlockType.HAT,
                     isEdgeActivated: false,
+                    hideFromPalette: true,
                     arguments: {
                         LABEL: {
                             type: Scratch.ArgumentType.STRING,
                             defaultValue: 'myFunction',
+                        },
+                        ARGS: {
+                            fillIn: "argsReporter"
                         }
                     }
                 },
+
+                {
+                    blockType: Scratch.BlockType.XML,
+                    hideFromPalette: false,
+                    xml: `
+                    <block type="jsoop_functionHat">
+                      <value name="LABEL"><shadow type="text"><field name="TEXT">myFunction</field></shadow></value>
+                      <value name="ARGS"><shadow type="jsoop_argsReporter"></shadow></value>
+                      <block type="jsoop_returnDataString">
+                        <value name="DATA"><shadow type="text"><field name="TEXT">foobar</field></shadow></value>
+                      </block>
+                    </block>
+                  `
+                },
+
                 {
                     opcode: 'functionReporter',
                     text: 'generate function for label [LABEL]',
@@ -578,6 +611,68 @@
                         }
                     },
                     ...JSObjectDescriptor.Block
+                },
+
+                {
+                    opcode: "returnDataString",
+                    blockType: Scratch.BlockType.COMMAND,
+                    isTerminal: true,
+                    hideFromPalette: false,
+                    text: "return [DATA]",
+                    arguments: {
+                        DATA: {
+                            type: Scratch.ArgumentType.STRING,
+                            defaultValue: "foobar"
+                        }
+                    },
+                },
+
+                {
+                    opcode: "returnDataObject",
+                    blockType: Scratch.BlockType.COMMAND,
+                    isTerminal: true,
+                    hideFromPalette: false,
+                    text: "return [DATA]",
+                    arguments: {
+                        DATA: {
+                            ...(vm.dogeiscutObject ? {
+                                ...vm.dogeiscutObject.Argument,
+                            } : {
+                                ...({
+                                    shape: 5,
+                                    exemptFromNormalization: true,
+                                    check: ["Object"]
+                                })
+                            }),
+                            defaultValue: vm.dogeiscutObject ? vm.dogeiscutObject.Type.defaultValue : undefined
+                        },
+                    },
+                },
+
+
+                {
+                    opcode: "returnDataArray",
+                    blockType: Scratch.BlockType.COMMAND,
+                    isTerminal: true,
+                    hideFromPalette: false,
+                    text: "return [DATA]",
+                    arguments: {
+                        DATA: {
+                            ...jwArray.Argument,
+                            defaultValue: new jwArray.Type([])
+                        }
+                    },
+                },
+
+                {
+                    opcode: "returnDataJsObject",
+                    blockType: Scratch.BlockType.COMMAND,
+                    isTerminal: true,
+                    hideFromPalette: false,
+                    text: "return [DATA]",
+                    arguments: {
+                        DATA: JSObjectDescriptor.Argument
+                    },
                 },
 
                 {
@@ -1067,21 +1162,85 @@
             };
         }
 
-        functionHat(args, util) {
-            return Scratch.Cast.toString(args.LABEL) == util.thread.targetHatLabel;
+        // Async functionHat
+        async functionHat(args, util) {
+            const label = Scratch.Cast.toString(args.LABEL);
+            const thread = util.thread;
+
+            // Immediate match
+            if (thread.targetHatLabel === label) {
+                thread.targetHatLabel = undefined;
+                return true;
+            }
+
+            // Wait for targetHatLabel asynchronously
+            while (thread.targetHatLabel !== label) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            thread.targetHatLabel = undefined;
+            return true;
         }
 
+        // Async reporter that waits for the last thread to report
         functionReporter(args) {
-            const label = args.LABEL;
+            const label = Scratch.Cast.toString(args.LABEL);
 
-            // Create an anonymous function that will trigger all hat blocks with this label
+            // The reporter function returned to Scratch
             const triggerFunction = (functionArgs) => {
-              for (const thread of vm.runtime.startHats("jsoop_functionHat")) thread.targetHatLabel = label;
+                const threads = vm.runtime.startHats("jsoop_functionHat");
+                if (!threads.length) return null;
+
+                const lastThread = threads[threads.length - 1];
+                lastThread.targetHatLabel = label; // use the LABEL dynamically
+                lastThread.jsoopArgs = functionArgs;
+
+                // Return a Promise that resolves when justReported is set
+                return new Promise(resolve => {
+                    const checkDone = () => {
+                        if (lastThread.justReported !== undefined && lastThread.justReported !== null) {
+                            const result = lastThread.justReported;
+
+                            // Clear it so future triggers don't reuse the old value
+                            lastThread.justReported = undefined;
+
+                            resolve(result);
+                        } else {
+                            setTimeout(checkDone, 5); // poll every 5ms
+                        }
+                    };
+                    checkDone();
+                });
             };
 
-            // Return the function wrapped in a JSObject
+            // Wrap in JSObject for Scratch
             return new JSObject(triggerFunction);
         }
+
+
+        // Return blocks
+        returnDataString(args, util) {
+            util.thread.justReported = args.DATA;
+            util.thread.stopThisScript();
+        }
+        returnDataObject(args, util) {
+            util.thread.justReported = args.DATA;
+            util.thread.stopThisScript();
+        }
+        returnDataArray(args, util) {
+            util.thread.justReported = args.DATA;
+            util.thread.stopThisScript();
+        }
+        returnDataJsObject(args, util) {
+            util.thread.justReported = args.DATA;
+            util.thread.stopThisScript();
+        }
+
+        // Arguments reporter
+        argsReporter(_, util) {
+            return util.thread.jsoopArgs || new JSObject(undefined);
+        }
+
 
         _wrapMaybe(x) {
 
@@ -1141,6 +1300,10 @@
             }
         }
 
+        functionHatNotice() {
+            alert('Make sure to use the "await" version of the call method/function blocks when a function hat block returns a value, it returns a JavaScript Promise since the hat may not immediately return.');
+        }
+
         propSettingNotice() {
             alert("These property settings block are to be used with JavaScript Objects stored in variables. They modify them in place!");
         }
@@ -1186,7 +1349,7 @@
         }
 
         constantAsyncFunction() {
-            return new JSObject(Object.getPrototypeOf(async function() {}).constructor);
+            return new JSObject(Object.getPrototypeOf(async function () {}).constructor);
         }
 
         constantDate() {
