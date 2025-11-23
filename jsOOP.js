@@ -557,8 +557,8 @@
                 return {
                     _jsoopLookupMarker: true,
                     lookupId: builtInLookupId,
-                    toString: () => `[JSOOP Lookup: ${builtInLookupId}]`,
-                    toJSON: () => ({ _jsoopLookupMarker: true, lookupId: builtInLookupId })
+                    toString: () => new JSObject().toString.apply({value: this._convertToNativeValue(this._getFromLookupTable(builtInLookupId))}),
+                    toJSON: () => ({ _jsoopLookupMarker: true, lookupId: builtInLookupId }),
                 };
             }
 
@@ -571,8 +571,8 @@
             return {
                 _jsoopLookupMarker: true,
                 lookupId: lookupId,
-                toString: () => `[JSOOP Lookup: ${lookupId}]`,
-                toJSON: () => ({ _jsoopLookupMarker: true, lookupId: lookupId })
+                toString: () => new JSObject().toString.apply({value: this._convertToNativeValue(this._getFromLookupTable(lookupId))}),
+                toJSON: () => ({ _jsoopLookupMarker: true, lookupId: lookupId }),
             };
         }
 
