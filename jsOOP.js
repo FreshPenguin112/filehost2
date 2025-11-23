@@ -1193,7 +1193,7 @@
 
                 const lastThread = threads[threads.length - 1];
                 lastThread.targetHatLabel = label; // use the LABEL dynamically
-                lastThread.jsoopArgs = functionArgs;
+                lastThread.jsoopArgs = this._convertJwArrayToArgs(functionArgs);
 
                 // Return a Promise that resolves when justReported is set
                 return new Promise(resolve => {
