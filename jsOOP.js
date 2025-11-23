@@ -324,6 +324,17 @@
 
             if (x instanceof JSObject) return x;
 
+            // Check if it's a lookup table marker from another extension
+            if (x && typeof x === "object" && x._jsoopLookupMarker && x.lookupId) {
+                const ext = vm.runtime.ext_jsoop;
+                if (ext) {
+                    const actualObject = ext._getFromLookupTable(x.lookupId);
+                    if (actualObject) {
+                        return actualObject;
+                    }
+                }
+            }
+
             if (x && typeof x === "object" && x.customId && typeof x.customId === "string") {
 
                 try {
@@ -339,6 +350,16 @@
         }
 
         static prepareForSerialize(v) {
+
+            // Check if this should be stored in the lookup table
+            const ext = vm.runtime.ext_jsoop;
+            if (ext && ext._shouldUseLookupTable(v)) {
+                const marker = ext._storeInLookupTable(new JSObject(v));
+                return {
+                    _jsoopLookupMarker: true,
+                    lookupId: marker.lookupId
+                };
+            }
 
             if (v && typeof v === 'object' && v.customId && vm && vm.runtime && vm.runtime.serializers && vm.runtime.serializers[v.customId]) {
                 try {
@@ -372,6 +393,23 @@
         static reconstructFromSerialize(obj) {
             try {
                 if (obj && typeof obj === 'object') {
+                    // Handle lookup table markers during deserialization
+                    if (obj._jsoopLookupMarker && obj.lookupId) {
+                        const ext = vm.runtime.ext_jsoop;
+                        if (ext) {
+                            const actualObject = ext._getFromLookupTable(obj.lookupId);
+                            if (actualObject) {
+                                return actualObject;
+                            }
+                        }
+                        // If we can't find it in lookup table (shouldn't happen for runtime objects),
+                        // return a placeholder
+                        return new JSObject({
+                            _jsoopLookupMissing: true,
+                            originalLookupId: obj.lookupId
+                        });
+                    }
+
                     if (obj._nestedCustom && obj.typeId && vm.runtime.serializers[obj.typeId]) {
                         return vm.runtime.serializers[obj.typeId].deserialize(obj.data);
                     }
@@ -413,7 +451,7 @@
             blockType: Scratch.BlockType.REPORTER,
             blockShape: Scratch.BlockShape.BUMPED,
             forceOutputType: "JSObject",
-            disableMonitor: true
+            disableMonitor: true,
         },
         Argument: {
             shape: Scratch.BlockShape.BUMPED,
@@ -424,6 +462,13 @@
 
     class JSOOPExtension {
         constructor() {
+            // Internal-only lookup table - users have NO access to this
+            this._jsObjectLookup = new Map();
+            this._nextLookupId = 1;
+            this._lookupTableEnabled = true;
+
+            // Store built-in objects that should always be in lookup table
+            this._builtInObjects = new Map();
 
             if (vm && vm.runtime && typeof vm.runtime.registerCompiledExtensionBlocks === 'function') {
                 vm.runtime.registerCompiledExtensionBlocks('jsoop', this.getInfo());
@@ -473,13 +518,203 @@
                     }
                 });
             }
-            this.runtime = Scratch.vm.runtime
+
+            // Store reference for static methods to access
+            this.runtime = Scratch.vm.runtime;
+            
+            // Pre-populate built-in objects in lookup table
+            this._initializeBuiltInObjects();
+        }
+
+        // Initialize built-in objects that should always be in lookup table
+        _initializeBuiltInObjects() {
+            const builtIns = [
+                Math, Object, Array, String, Number, Boolean, Function,
+                Date, RegExp, JSON, Promise, Error, Map, Set, WeakMap, WeakSet,
+                Symbol, Proxy, Reflect, Intl, console, globalThis
+            ];
+            
+            builtIns.forEach(builtIn => {
+                const jsObject = new JSObject(builtIn);
+                const lookupId = this._generateLookupId();
+                this._builtInObjects.set(builtIn, lookupId);
+                this._jsObjectLookup.set(lookupId, jsObject);
+            });
+        }
+
+        // Internal method to generate unique lookup IDs
+        _generateLookupId() {
+            return `jsoop_${this._nextLookupId++}_${Date.now()}`;
+        }
+
+        // Internal method to store JSObject in lookup table and return marker
+        _storeInLookupTable(jsObject) {
+            if (!this._lookupTableEnabled) return jsObject;
+
+            // Check if this is a built-in object that's already in the lookup table
+            const builtInLookupId = this._builtInObjects.get(jsObject.value);
+            if (builtInLookupId) {
+                return {
+                    _jsoopLookupMarker: true,
+                    lookupId: builtInLookupId,
+                    toString: () => `[JSOOP Lookup: ${builtInLookupId}]`,
+                    toJSON: () => ({ _jsoopLookupMarker: true, lookupId: builtInLookupId })
+                };
+            }
+
+            const lookupId = this._generateLookupId();
+            this._jsObjectLookup.set(lookupId, jsObject);
+
+            if (DEBUG) console.log('Stored JSObject in lookup table:', lookupId, jsObject);
+
+            // Return a marker object that other extensions can store
+            return {
+                _jsoopLookupMarker: true,
+                lookupId: lookupId,
+                toString: () => `[JSOOP Lookup: ${lookupId}]`,
+                toJSON: () => ({ _jsoopLookupMarker: true, lookupId: lookupId })
+            };
+        }
+
+        // Internal method to retrieve JSObject from lookup table
+        _getFromLookupTable(lookupId) {
+            if (!this._lookupTableEnabled) return null;
+
+            const obj = this._jsObjectLookup.get(lookupId);
+            if (DEBUG && obj) console.log('Retrieved JSObject from lookup table:', lookupId, obj);
+            return obj;
+        }
+
+        // Internal method to determine if an object should use lookup table
+        _shouldUseLookupTable(value) {
+            if (!this._lookupTableEnabled) return false;
+            if (value === null || value === undefined) return false;
+
+            const type = typeof value;
+
+            // Always use lookup table for functions
+            if (type === 'function') return true;
+
+            // Check if it's a built-in object
+            if (this._isBuiltInObject(value)) return true;
+
+            // For objects, check if they're problematic for serialization
+            if (type === 'object') {
+                // DOM elements
+                if (value instanceof HTMLElement) return true;
+                if (value instanceof Node) return true;
+
+                // Built-in objects that don't serialize well
+                if (value instanceof Map) return true;
+                if (value instanceof Set) return true;
+                if (value instanceof WeakMap) return true;
+                if (value instanceof WeakSet) return true;
+                if (value instanceof Promise) return true;
+                if (value instanceof Error) return true;
+
+                // Objects with circular references
+                try {
+                    JSON.stringify(value);
+                } catch (e) {
+                    return true; // Can't serialize, use lookup table
+                }
+
+                // Large objects might be better in lookup table
+                if (Object.keys(value).length > 100) return true;
+                
+                // Objects with methods/properties that can't be serialized
+                if (this._hasUnserializableProperties(value)) return true;
+            }
+
+            return false;
+        }
+
+        // Check if an object is a built-in JavaScript object
+        _isBuiltInObject(value) {
+            if (value === null || value === undefined) return false;
+            
+            // Check against known built-in objects
+            const builtIns = [
+                Math, Object, Array, String, Number, Boolean, Function,
+                Date, RegExp, JSON, Promise, Error, Map, Set, WeakMap, WeakSet,
+                Symbol, Proxy, Reflect, Intl, console, globalThis
+            ];
+            
+            return builtIns.includes(value);
+        }
+
+        // Check if an object has properties that can't be properly serialized
+        _hasUnserializableProperties(obj) {
+            try {
+                const props = Object.getOwnPropertyNames(obj);
+                for (const prop of props) {
+                    try {
+                        const value = obj[prop];
+                        if (typeof value === 'function') return true;
+                        if (value && typeof value === 'object') {
+                            JSON.stringify(value);
+                        }
+                    } catch (e) {
+                        return true;
+                    }
+                }
+            } catch (e) {
+                return true;
+            }
+            return false;
+        }
+
+        // Internal method to automatically handle JSObjects for other extensions
+        _wrapForOtherExtensions(jsObject) {
+            if (!this._lookupTableEnabled) return jsObject;
+
+            if (jsObject instanceof JSObject) {
+                const innerValue = jsObject.value;
+                if (this._shouldUseLookupTable(innerValue)) {
+                    return this._storeInLookupTable(jsObject);
+                }
+            }
+
+            return jsObject;
+        }
+
+        // NEW: Ensure we always resolve JSObject references before using them
+        _resolveJSObject(obj) {
+            if (obj instanceof JSObject) {
+                return obj.value;
+            }
+            
+            // Handle lookup table markers
+            if (obj && typeof obj === "object" && obj._jsoopLookupMarker && obj.lookupId) {
+                const actualObject = this._getFromLookupTable(obj.lookupId);
+                if (actualObject instanceof JSObject) {
+                    return actualObject.value;
+                }
+            }
+            
+            return obj;
+        }
+
+        // NEW: Get the actual value from any JSObject or marker
+        _getActualValue(value) {
+            if (value instanceof JSObject) {
+                return value.value;
+            }
+            
+            // Handle lookup table markers
+            if (value && typeof value === "object" && value._jsoopLookupMarker && value.lookupId) {
+                const actualObject = this._getFromLookupTable(value.lookupId);
+                if (actualObject instanceof JSObject) {
+                    return actualObject.value;
+                }
+            }
+            
+            return value;
         }
 
         getInfo() {
-
+            // ... (blocks array remains exactly the same as in the previous version)
             const blocks = [
-                // ... existing blocks remain the same ...
                 {
                     opcode: "codeInput",
                     color1: "#6b8cff",
@@ -497,16 +732,15 @@
                         }
                     },
                 },
-
                 {
                     opcode: "argsReporter",
                     text: "args",
                     blockType: Scratch.BlockType.REPORTER,
                     hideFromPalette: true,
                     canDragDuplicate: true,
+                    allowDropAnywhere: true,
                     disableMonitor: true,
                 },
-
                 {
                     opcode: 'evalJS',
                     color1: "#6b8cff",
@@ -521,7 +755,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'runJS',
                     color1: "#6b8cff",
@@ -535,7 +768,6 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'jsCommand',
                     text: 'run [CODE]',
@@ -562,13 +794,11 @@
                         }
                     }
                 },
-
                 {
                     opcode: "functionHatNotice",
                     blockType: Scratch.BlockType.BUTTON,
                     text: "Notice, read me!"
                 },
-                
                 {
                     opcode: 'functionHat',
                     text: 'when function [LABEL] is called [ARGS]',
@@ -585,7 +815,6 @@
                         }
                     }
                 },
-
                 {
                     blockType: Scratch.BlockType.XML,
                     hideFromPalette: false,
@@ -593,13 +822,14 @@
                     <block type="jsoop_functionHat">
                       <value name="LABEL"><shadow type="text"><field name="TEXT">myFunction</field></shadow></value>
                       <value name="ARGS"><shadow type="jsoop_argsReporter"></shadow></value>
-                      <block type="jsoop_returnDataString">
-                        <value name="DATA"><shadow type="text"><field name="TEXT">foobar</field></shadow></value>
-                      </block>
+                      <next>
+                        <block type="jsoop_returnDataString">
+                          <value name="DATA"><shadow type="text"><field name="TEXT">foobar</field></shadow></value>
+                        </block>
+                      </next>
                     </block>
                   `
                 },
-
                 {
                     opcode: 'functionReporter',
                     text: 'generate function for label [LABEL]',
@@ -612,7 +842,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: "returnDataString",
                     blockType: Scratch.BlockType.COMMAND,
@@ -626,7 +855,6 @@
                         }
                     },
                 },
-
                 {
                     opcode: "returnDataObject",
                     blockType: Scratch.BlockType.COMMAND,
@@ -648,8 +876,6 @@
                         },
                     },
                 },
-
-
                 {
                     opcode: "returnDataArray",
                     blockType: Scratch.BlockType.COMMAND,
@@ -663,7 +889,6 @@
                         }
                     },
                 },
-
                 {
                     opcode: "returnDataJsObject",
                     blockType: Scratch.BlockType.COMMAND,
@@ -674,7 +899,6 @@
                         DATA: JSObjectDescriptor.Argument
                     },
                 },
-
                 {
                     opcode: 'new',
                     blockType: Scratch.BlockType.REPORTER,
@@ -688,7 +912,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'callMethod',
                     blockType: Scratch.BlockType.REPORTER,
@@ -707,7 +930,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'awaitCallMethod',
                     blockType: Scratch.BlockType.REPORTER,
@@ -726,7 +948,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'runMethod',
                     blockType: Scratch.BlockType.COMMAND,
@@ -761,7 +982,6 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'callFunction',
                     blockType: Scratch.BlockType.REPORTER,
@@ -787,7 +1007,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'awaitCallFunction',
                     blockType: Scratch.BlockType.REPORTER,
@@ -813,7 +1032,6 @@
                     },
                     ...JSObjectDescriptor.Block
                 },
-
                 {
                     opcode: 'runFunction',
                     blockType: Scratch.BlockType.COMMAND,
@@ -838,7 +1056,6 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'awaitRunFunction',
                     blockType: Scratch.BlockType.COMMAND,
@@ -863,11 +1080,11 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'getProp',
                     blockType: Scratch.BlockType.REPORTER,
                     text: 'get property [PROP] of [INSTANCE]',
+                    allowDropAnywhere: true,
                     arguments: {
                         PROP: {
                             type: Scratch.ArgumentType.STRING,
@@ -889,13 +1106,21 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'typeName',
                     blockType: Scratch.BlockType.REPORTER,
                     text: 'type name of [INSTANCE]',
                     arguments: {
                         INSTANCE: JSObjectDescriptor.Argument
+                    }
+                },
+                {
+                    opcode: 'toNative',
+                    blockType: Scratch.BlockType.REPORTER,
+                    text: 'Convert to native JavaScript value [VALUE]',
+                    allowDropAnywhere: true,
+                    arguments: {
+                        VALUE: JSObjectDescriptor.Argument
                     }
                 },
                 {
@@ -925,7 +1150,6 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'setPropJSObject',
                     blockType: Scratch.BlockType.COMMAND,
@@ -940,7 +1164,6 @@
                         VALUE: JSObjectDescriptor.Argument
                     }
                 },
-
                 {
                     opcode: 'setPropJwArray',
                     blockType: Scratch.BlockType.COMMAND,
@@ -958,7 +1181,6 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'setPropDogeiscutObject',
                     blockType: Scratch.BlockType.COMMAND,
@@ -981,13 +1203,11 @@
                         }
                     }
                 },
-
                 {
                     opcode: 'separator1',
                     blockType: Scratch.BlockType.LABEL,
                     text: 'Common JavaScript Constants'
                 },
-
                 {
                     opcode: 'constantMath',
                     blockType: Scratch.BlockType.REPORTER,
@@ -1187,13 +1407,13 @@
             const label = Scratch.Cast.toString(args.LABEL);
 
             // The reporter function returned to Scratch
-            const triggerFunction = (functionArgs) => {
+            const triggerFunction = (...functionArgs) => {
                 const threads = vm.runtime.startHats("jsoop_functionHat");
                 if (!threads.length) return null;
 
                 const lastThread = threads[threads.length - 1];
                 lastThread.targetHatLabel = label; // use the LABEL dynamically
-                lastThread.jsoopArgs = this._convertJwArrayToArgs(functionArgs);
+                lastThread.jsoopArgs = new jwArray.Type(functionArgs);
 
                 // Return a Promise that resolves when justReported is set
                 return new Promise(resolve => {
@@ -1213,14 +1433,14 @@
                 });
             };
 
-            // Wrap in JSObject for Scratch
-            return new JSObject(triggerFunction);
+            // Wrap in JSObject for Scratch, potentially using lookup table
+            const jsObject = new JSObject(triggerFunction);
+            return this._wrapForOtherExtensions(jsObject);
         }
-
 
         // Return blocks
         returnDataString(args, util) {
-            util.thread.justReported = args.DATA;
+            util.thread.justReported = Scratch.Cast.toString(args.DATA);
             util.thread.stopThisScript();
         }
         returnDataObject(args, util) {
@@ -1238,34 +1458,31 @@
 
         // Arguments reporter
         argsReporter(_, util) {
-            return util.thread.jsoopArgs || new JSObject(undefined);
+            const args = util.thread.jsoopArgs || new JSObject(undefined);
+            return this._wrapForOtherExtensions(args);
         }
 
+        toNative(args) {
+            return this._convertToNativeValue(args.VALUE);
+        }
 
         _wrapMaybe(x) {
-
             if (x instanceof JSObject) return x;
-
             if (x && typeof x === 'object' && x.customId) return new JSObject(x);
-
             return new JSObject(x);
         }
 
         _convertJwArrayToArgs(jwArrayObj) {
             if (jwArrayObj instanceof jwArray.Type) {
-
                 return jwArrayObj.array.map(item => {
-                    if (item instanceof JSObject) {
-                        return item.value;
-                    }
-                    return item;
+                    // Resolve any JSObject references in the array
+                    return this._getActualValue(item);
                 });
             }
             return [];
         }
 
         _convertResultToJwArray(result) {
-
             if (Array.isArray(result) && !(result instanceof jwArray.Type)) {
                 return new jwArray.Type(result);
             }
@@ -1273,7 +1490,6 @@
         }
 
         _convertToNativeValue(value) {
-
             if (value && typeof value === 'object' && value.object && value.customId === 'dogeiscutObject') {
                 return value.object;
             }
@@ -1282,10 +1498,8 @@
                 return value.array;
             }
 
-            if (value instanceof JSObject) {
-                return value.value;
-            }
-            return value;
+            // Always resolve JSObject references
+            return this._getActualValue(value);
         }
 
         _convertToSafeString(value) {
@@ -1313,111 +1527,112 @@
         }
 
         constantMath() {
-            return new JSObject(Math);
+            // Math is now automatically stored in lookup table during initialization
+            return this._wrapForOtherExtensions(new JSObject(Math));
         }
 
         constantNull() {
-            return new JSObject(null);
+            return this._wrapForOtherExtensions(new JSObject(null));
         }
 
         constantUndefined() {
-            return new JSObject(undefined);
+            return this._wrapForOtherExtensions(new JSObject(undefined));
         }
 
         constantObject() {
-            return new JSObject(Object);
+            return this._wrapForOtherExtensions(new JSObject(Object));
         }
 
         constantArray() {
-            return new JSObject(Array);
+            return this._wrapForOtherExtensions(new JSObject(Array));
         }
 
         constantString() {
-            return new JSObject(String);
+            return this._wrapForOtherExtensions(new JSObject(String));
         }
 
         constantNumber() {
-            return new JSObject(Number);
+            return this._wrapForOtherExtensions(new JSObject(Number));
         }
 
         constantBoolean() {
-            return new JSObject(Boolean);
+            return this._wrapForOtherExtensions(new JSObject(Boolean));
         }
 
         constantFunction() {
-            return new JSObject(Function);
+            return this._wrapForOtherExtensions(new JSObject(Function));
         }
 
         constantAsyncFunction() {
-            return new JSObject(Object.getPrototypeOf(async function () {}).constructor);
+            return this._wrapForOtherExtensions(new JSObject(Object.getPrototypeOf(async function () {}).constructor));
         }
 
         constantDate() {
-            return new JSObject(Date);
+            return this._wrapForOtherExtensions(new JSObject(Date));
         }
 
         constantRegExp() {
-            return new JSObject(RegExp);
+            return this._wrapForOtherExtensions(new JSObject(RegExp));
         }
 
         constantJSON() {
-            return new JSObject(JSON);
+            return this._wrapForOtherExtensions(new JSObject(JSON));
         }
 
         constantPromise() {
-            return new JSObject(Promise);
+            return this._wrapForOtherExtensions(new JSObject(Promise));
         }
 
         constantError() {
-            return new JSObject(Error);
+            return this._wrapForOtherExtensions(new JSObject(Error));
         }
 
         constantMap() {
-            return new JSObject(Map);
+            return this._wrapForOtherExtensions(new JSObject(Map));
         }
 
         constantSet() {
-            return new JSObject(Set);
+            return this._wrapForOtherExtensions(new JSObject(Set));
         }
 
         constantWeakMap() {
-            return new JSObject(WeakMap);
+            return this._wrapForOtherExtensions(new JSObject(WeakMap));
         }
 
         constantWeakSet() {
-            return new JSObject(WeakSet);
+            return this._wrapForOtherExtensions(new JSObject(WeakSet));
         }
 
         constantSymbol() {
-            return new JSObject(Symbol);
+            return this._wrapForOtherExtensions(new JSObject(Symbol));
         }
 
         constantProxy() {
-            return new JSObject(Proxy);
+            return this._wrapForOtherExtensions(new JSObject(Proxy));
         }
 
         constantReflect() {
-            return new JSObject(Reflect);
+            return this._wrapForOtherExtensions(new JSObject(Reflect));
         }
 
         constantIntl() {
-            return new JSObject(Intl);
+            return this._wrapForOtherExtensions(new JSObject(Intl));
         }
 
         constantConsole() {
-            return new JSObject(console);
+            return this._wrapForOtherExtensions(new JSObject(console));
         }
 
         constantGlobalThis() {
-            return new JSObject(globalThis);
+            return this._wrapForOtherExtensions(new JSObject(globalThis));
         }
 
         constantInfinity() {
-            return new JSObject(Infinity);
+            return this._wrapForOtherExtensions(new JSObject(Infinity));
         }
 
         constantNaN() {
-            return new JSObject(NaN);
+            return this._wrapForOtherExtensions(new JSObject(NaN));
         }
 
         evalJS({
@@ -1428,7 +1643,6 @@
                 CODE
             });
             try {
-
                 const fn = new Function('"use strict"; return (function(){ ' + CODE + ' })()');
                 const result = fn();
                 if (DEBUG) console.dir({
@@ -1440,16 +1654,16 @@
                     action: 'evalJS(wrapped)',
                     wrapped
                 });
-                return wrapped;
+                return this._wrapForOtherExtensions(wrapped);
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'evalJS(error)',
                     error: err
                 });
 
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1501,12 +1715,12 @@
             });
             try {
                 const ctorWrap = JSObject.toType(CONSTRUCTOR);
-                const ctor = ctorWrap.value;
+                const ctor = this._getActualValue(ctorWrap); // Resolve constructor reference
                 const args = this._convertJwArrayToArgs(ARGS);
                 if (typeof ctor !== 'function') {
-                    return new JSObject({
+                    return this._wrapForOtherExtensions(new JSObject({
                         error: 'Constructor is not a function'
-                    });
+                    }));
                 }
                 try {
                     const instance = Reflect.construct(ctor, args);
@@ -1515,24 +1729,24 @@
                         instance
                     });
                     const result = JSObject.toType(instance);
-                    return this._convertResultToJwArray(result);
+                    return this._wrapForOtherExtensions(this._convertResultToJwArray(result));
                 } catch (err) {
                     if (DEBUG) console.dir({
                         action: 'new(error)',
                         error: err
                     });
-                    return new JSObject({
+                    return this._wrapForOtherExtensions(new JSObject({
                         error: String(err)
-                    });
+                    }));
                 }
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'new(errorOuter)',
                     error: err
                 });
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1548,13 +1762,11 @@
                 ARGS
             });
 
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = INSTANCE.value;
-
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
+            
             const args = this._convertJwArrayToArgs(ARGS);
 
             if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
-
                 const primProto = Object.getPrototypeOf(target);
                 const fnPrim = primProto && primProto[METHOD];
                 if (typeof fnPrim === 'function') {
@@ -1565,25 +1777,24 @@
                             result
                         });
                         const wrappedResult = JSObject.toType(result);
-                        return this._convertResultToJwArray(wrappedResult);
+                        return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
                         if (DEBUG) console.dir({
                             action: 'callMethod(errorPrimitive)',
                             error: err
                         });
-                        return new JSObject({
+                        return this._wrapForOtherExtensions(new JSObject({
                             error: String(err)
-                        });
+                        }));
                     }
                 }
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: `No method ${METHOD} on target`
-                });
+                }));
             }
 
             const fn = target[METHOD];
             if (typeof fn !== 'function') {
-
                 const proto = Object.getPrototypeOf(target);
                 const fnProto = proto && proto[METHOD];
                 if (typeof fnProto === 'function') {
@@ -1594,21 +1805,21 @@
                             result
                         });
                         const wrappedResult = JSObject.toType(result);
-                        return this._convertResultToJwArray(wrappedResult);
+                        return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
                         if (DEBUG) console.dir({
                             action: 'callMethod(errorProto)',
                             error: err
                         });
-                        return new JSObject({
+                        return this._wrapForOtherExtensions(new JSObject({
                             error: String(err)
-                        });
+                        }));
                     }
                 }
 
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: `No method ${METHOD}`
-                });
+                }));
             }
 
             try {
@@ -1617,16 +1828,15 @@
                     action: 'callMethod(result)',
                     result
                 });
-                const wrappedResult = JSObject.toType(result);
-                return this._convertResultToJwArray(wrappedResult);
+                return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'callMethod(error)',
                     error: err
                 });
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1642,8 +1852,7 @@
                 ARGS
             });
 
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = INSTANCE.value;
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const args = this._convertJwArrayToArgs(ARGS);
 
             if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
@@ -1659,27 +1868,27 @@
                                 awaited
                             });
                             const wrappedResult = JSObject.toType(awaited);
-                            return this._convertResultToJwArray(wrappedResult);
+                            return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                         }
                         if (DEBUG) console.dir({
                             action: 'awaitCallMethod(resultPrimitive)',
                             res
                         });
                         const wrappedResult = JSObject.toType(res);
-                        return this._convertResultToJwArray(wrappedResult);
+                        return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
                         if (DEBUG) console.dir({
                             action: 'awaitCallMethod(errorPrimitive)',
                             error: err
                         });
-                        return new JSObject({
+                        return this._wrapForOtherExtensions(new JSObject({
                             error: String(err)
-                        });
+                        }));
                     }
                 }
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: `No method ${METHOD} on target`
-                });
+                }));
             }
 
             let fn = target[METHOD];
@@ -1688,37 +1897,35 @@
                 fn = proto && proto[METHOD];
             }
             if (typeof fn !== 'function') {
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: `No method ${METHOD}`
-                });
+                }));
             }
 
             try {
                 const result = fn.apply(target, args);
                 if (result && typeof result.then === 'function') {
-
                     const awaited = await result;
                     if (DEBUG) console.dir({
                         action: 'awaitCallMethod(awaited)',
                         awaited
                     });
                     const wrappedResult = JSObject.toType(awaited);
-                    return this._convertResultToJwArray(wrappedResult);
+                    return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                 }
                 if (DEBUG) console.dir({
                     action: 'awaitCallMethod(result)',
                     result
                 });
-                const wrappedResult = JSObject.toType(result);
-                return this._convertResultToJwArray(wrappedResult);
+                return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'awaitCallMethod(error)',
                     error: err
                 });
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1733,8 +1940,7 @@
                 INSTANCE,
                 ARGS
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = INSTANCE.value;
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const args = this._convertJwArrayToArgs(ARGS);
 
             if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
@@ -1781,6 +1987,7 @@
                 });
             }
         }
+
         callFunction({
             FUNC,
             THIS,
@@ -1795,14 +2002,14 @@
 
             try {
                 const funcWrap = JSObject.toType(FUNC);
-                const func = funcWrap.value;
+                const func = this._getActualValue(funcWrap); // Resolve function reference
                 const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
                 const args = this._convertJwArrayToArgs(ARGS);
 
                 if (typeof func !== 'function') {
-                    return new JSObject({
+                    return this._wrapForOtherExtensions(new JSObject({
                         error: 'FUNC is not a function'
-                    });
+                    }));
                 }
 
                 const result = func.apply(thisArg, args);
@@ -1811,16 +2018,15 @@
                     result
                 });
 
-                const wrappedResult = JSObject.toType(result);
-                return this._convertResultToJwArray(wrappedResult);
+                return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'callFunction(error)',
                     error: err
                 });
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1838,14 +2044,14 @@
 
             try {
                 const funcWrap = JSObject.toType(FUNC);
-                const func = funcWrap.value;
+                const func = this._getActualValue(funcWrap); // Resolve function reference
                 const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
                 const args = this._convertJwArrayToArgs(ARGS);
 
                 if (typeof func !== 'function') {
-                    return new JSObject({
+                    return this._wrapForOtherExtensions(new JSObject({
                         error: 'FUNC is not a function'
-                    });
+                    }));
                 }
 
                 let result = func.apply(thisArg, args);
@@ -1858,16 +2064,16 @@
                     result
                 });
 
-                const wrappedResult = JSObject.toType(result);
-                return this._convertResultToJwArray(wrappedResult);
+                //const wrappedResult = JSObject.toType(result);
+                return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'awaitCallFunction(error)',
                     error: err
                 });
-                return new JSObject({
+                return this._wrapForOtherExtensions(new JSObject({
                     error: String(err)
-                });
+                }));
             }
         }
 
@@ -1885,7 +2091,7 @@
 
             try {
                 const funcWrap = JSObject.toType(FUNC);
-                const func = funcWrap.value;
+                const func = this._getActualValue(funcWrap); // Resolve function reference
                 const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
                 const args = this._convertJwArrayToArgs(ARGS);
 
@@ -1922,7 +2128,7 @@
 
             try {
                 const funcWrap = JSObject.toType(FUNC);
-                const func = funcWrap.value;
+                const func = this._getActualValue(funcWrap); // Resolve function reference
                 const thisArg = THIS ? this._convertToNativeValue(THIS) : undefined;
                 const args = this._convertJwArrayToArgs(ARGS);
 
@@ -1961,8 +2167,7 @@
                 ARGS
             });
 
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = INSTANCE.value;
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const args = this._convertJwArrayToArgs(ARGS);
 
             if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
@@ -2016,8 +2221,6 @@
             }
         }
 
-
-
         getProp({
             PROP,
             INSTANCE
@@ -2027,8 +2230,7 @@
                 PROP,
                 INSTANCE
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = this._convertToNativeValue(INSTANCE.value);
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
 
             try {
                 const val = target[PROP];
@@ -2036,7 +2238,7 @@
                     action: 'getProp(result)',
                     val
                 });
-                return this._convertToSafeString(val);
+                return this._getActualValue(this._convertToNativeValue(val));
             } catch (err) {
                 if (DEBUG) console.dir({
                     action: 'getProp(error)',
@@ -2057,14 +2259,12 @@
                 INSTANCE,
                 VALUE
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = this._convertToNativeValue(INSTANCE.value);
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
 
             let parsed;
             try {
                 parsed = JSON.parse(VALUE);
             } catch {
-
                 const t = VALUE && VALUE.trim();
                 if (/^-?\d+(\.\d+)?$/.test(t)) parsed = Number(t);
                 else if (t === 'true') parsed = true;
@@ -2076,7 +2276,6 @@
                 if (target && (typeof target === 'object' || typeof target === 'function')) {
                     target[PROP] = parsed;
                 } else {
-
                     const newObj = Object(target);
                     newObj[PROP] = parsed;
                     INSTANCE.value = newObj;
@@ -2104,15 +2303,13 @@
                 INSTANCE,
                 VALUE
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = this._convertToNativeValue(INSTANCE.value);
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const value = this._convertToNativeValue(VALUE);
 
             try {
                 if (target && (typeof target === 'object' || typeof target === 'function')) {
                     target[PROP] = value;
                 } else {
-
                     const newObj = Object(target);
                     newObj[PROP] = value;
                     INSTANCE.value = newObj;
@@ -2140,15 +2337,13 @@
                 INSTANCE,
                 VALUE
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = this._convertToNativeValue(INSTANCE.value);
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const value = this._convertToNativeValue(VALUE);
 
             try {
                 if (target && (typeof target === 'object' || typeof target === 'function')) {
                     target[PROP] = value;
                 } else {
-
                     const newObj = Object(target);
                     newObj[PROP] = value;
                     INSTANCE.value = newObj;
@@ -2176,15 +2371,13 @@
                 INSTANCE,
                 VALUE
             });
-            INSTANCE = JSObject.toType(INSTANCE);
-            const target = this._convertToNativeValue(INSTANCE.value);
+            const target = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             const value = this._convertToNativeValue(VALUE);
 
             try {
                 if (target && (typeof target === 'object' || typeof target === 'function')) {
                     target[PROP] = value;
                 } else {
-
                     const newObj = Object(target);
                     newObj[PROP] = value;
                     INSTANCE.value = newObj;
@@ -2204,7 +2397,6 @@
         stringify({
             VALUE
         }) {
-
             try {
                 let inner = VALUE;
 
@@ -2213,7 +2405,6 @@
                 } else if (VALUE instanceof JSObject) {
                     inner = VALUE.value;
                 } else {
-
                     try {
                         inner = JSON.parse(VALUE);
                     } catch {}
@@ -2221,9 +2412,7 @@
                 try {
                     return safeSerialize(inner);
                 } catch (e) {
-
                     if (typeof inner === 'function') return inner.toString();
-
                     return String(inner);
                 }
             } catch (err) {
@@ -2238,8 +2427,7 @@
         typeName({
             INSTANCE
         }) {
-            INSTANCE = JSObject.toType(INSTANCE);
-            const v = this._convertToNativeValue(INSTANCE.value);
+            const v = this._getActualValue(this._convertToNativeValue(INSTANCE)); // Resolve instance reference
             if (v === null) return 'null';
             if (v === undefined) return 'undefined';
             if (typeof v === 'function') return `function ${v.name || '(anonymous)'}`;
