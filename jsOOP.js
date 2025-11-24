@@ -1382,61 +1382,91 @@
             };
         }
 
-        // Async functionHat
         async functionHat(args, util) {
             const label = Scratch.Cast.toString(args.LABEL);
             const thread = util.thread;
-
-            // Immediate match
-            if (thread.targetHatLabel === label) {
-                thread.targetHatLabel = undefined;
-                return true;
-            }
-
-            // Wait for targetHatLabel asynchronously
-            while (thread.targetHatLabel !== label) {
+        
+            thread.functionHatLabel = label;
+        
+            //
+            // DON'T DO ANYTHING until reporter arms this thread
+            //
+            while (!thread.armed) {
                 await new Promise(r => setTimeout(r, 0));
             }
-
+        
+            //
+            // Once armed, if labels don't match → exit immediately
+            //
+            if (thread.targetHatLabel !== label) {
+                return false; // do not run block stack
+            }
+        
+            //
+            // Normal matching hat behavior
+            //
+            // Clear triggering
             thread.targetHatLabel = undefined;
             return true;
         }
 
-        // Async reporter that waits for the last thread to report
+
         functionReporter(args) {
             const label = Scratch.Cast.toString(args.LABEL);
-
-            // The reporter function returned to Scratch
+        
             const triggerFunction = (...functionArgs) => {
-                const threads = vm.runtime.startHats("jsoop_functionHat");
-                if (!threads.length) return null;
-
-                const lastThread = threads[threads.length - 1];
-                lastThread.targetHatLabel = label; // use the LABEL dynamically
-                lastThread.jsoopArgs = new jwArray.Type(functionArgs);
-
-                // Return a Promise that resolves when justReported is set
+                const allThreads = vm.runtime.startHats("jsoop_functionHat");
+        
+                // Only hats with same LABEL
+                const matchingThreads = allThreads.filter(t => t.functionHatLabel === label);
+        
+                // Arm matching hats first
+                for (const t of matchingThreads) {
+                    t.targetHatLabel = label;
+                    t.jsoopArgs = new jwArray.Type(functionArgs);
+                    t.armed = true;   // LET THEM RUN
+                }
+        
+                // Arm non-matching hats
+                for (const t of allThreads) {
+                    if (!t.armed) {
+                        t.targetHatLabel = null;
+                        t.armed = true;  // They will exit immediately
+                    }
+                }
+        
                 return new Promise(resolve => {
-                    const checkDone = () => {
-                        if (lastThread.justReported !== undefined && lastThread.justReported !== null) {
-                            const result = lastThread.justReported;
-
-                            // Clear it so future triggers don't reuse the old value
-                            lastThread.justReported = undefined;
-
-                            resolve(result);
+                    let remaining = matchingThreads.length;
+                    let lastResult;
+        
+                    const check = () => {
+                        for (const t of matchingThreads) {
+                            if (t.__done) continue;
+        
+                            if (t.justReported !== undefined && t.justReported !== null) {
+                                lastResult = t.justReported;
+                                t.justReported = undefined;
+                                t.__done = true;
+                                remaining--;
+                            }
+                        }
+        
+                        if (remaining === 0) {
+                            resolve(lastResult);
                         } else {
-                            setTimeout(checkDone, 5); // poll every 5ms
+                            setTimeout(check, 5);
                         }
                     };
-                    checkDone();
+        
+                    check();
                 });
             };
-
-            // Wrap in JSObject for Scratch, potentially using lookup table
-            const jsObject = new JSObject(triggerFunction);
-            return this._wrapForOtherExtensions(jsObject);
+        
+            return this._wrapForOtherExtensions(new JSObject(triggerFunction));
         }
+
+
+
 
         // Return blocks
         returnDataString(args, util) {
