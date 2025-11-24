@@ -24,7 +24,7 @@
                         if (DEBUG) console.log('dogeiscutObject loaded successfully');
                     })
                     .catch((error) => {
-                        if (DEBUG) console.error('Failed to load dogeiscutObject:', error);
+                        console.error('Failed to load dogeiscutObject:', error);
                         // Continue even if loading fails
                         dogeiscutObjectLoaded = false;
                     });
@@ -710,6 +710,30 @@
             }
             
             return value;
+        }
+
+        // NEW: Error handling wrapper that always forwards to console.error
+        _handleError(error, context) {
+            console.error(`JS OOP Error in ${context}:`, error);
+            return error;
+        }
+
+        // NEW: Safe execution wrapper that catches and forwards all errors
+        _safeExecute(fn, context, ...args) {
+            try {
+                return fn.apply(this, args);
+            } catch (error) {
+                throw this._handleError(error, context);
+            }
+        }
+
+        // NEW: Safe async execution wrapper
+        async _safeExecuteAsync(fn, context, ...args) {
+            try {
+                return await fn.apply(this, args);
+            } catch (error) {
+                throw this._handleError(error, context);
+            }
         }
 
         getInfo() {
@@ -1686,6 +1710,7 @@
                 });
                 return this._wrapForOtherExtensions(wrapped);
             } catch (err) {
+                console.error('JS OOP Error in evalJS:', err);
                 if (DEBUG) console.dir({
                     action: 'evalJS(error)',
                     error: err
@@ -1711,6 +1736,7 @@
                     action: 'runJS(done)'
                 });
             } catch (err) {
+                console.error('JS OOP Error in runJS:', err);
                 if (DEBUG) console.dir({
                     action: 'runJS(error)',
                     error: err
@@ -1761,6 +1787,7 @@
                     const result = JSObject.toType(instance);
                     return this._wrapForOtherExtensions(this._convertResultToJwArray(result));
                 } catch (err) {
+                    console.error('JS OOP Error in new:', err);
                     if (DEBUG) console.dir({
                         action: 'new(error)',
                         error: err
@@ -1770,6 +1797,7 @@
                     }));
                 }
             } catch (err) {
+                console.error('JS OOP Error in new (outer):', err);
                 if (DEBUG) console.dir({
                     action: 'new(errorOuter)',
                     error: err
@@ -1809,6 +1837,7 @@
                         const wrappedResult = JSObject.toType(result);
                         return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
+                        console.error('JS OOP Error in callMethod (primitive):', err);
                         if (DEBUG) console.dir({
                             action: 'callMethod(errorPrimitive)',
                             error: err
@@ -1837,6 +1866,7 @@
                         const wrappedResult = JSObject.toType(result);
                         return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
+                        console.error('JS OOP Error in callMethod (proto):', err);
                         if (DEBUG) console.dir({
                             action: 'callMethod(errorProto)',
                             error: err
@@ -1860,6 +1890,7 @@
                 });
                 return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
+                console.error('JS OOP Error in callMethod:', err);
                 if (DEBUG) console.dir({
                     action: 'callMethod(error)',
                     error: err
@@ -1907,6 +1938,7 @@
                         const wrappedResult = JSObject.toType(res);
                         return this._wrapForOtherExtensions(this._convertResultToJwArray(wrappedResult));
                     } catch (err) {
+                        console.error('JS OOP Error in awaitCallMethod (primitive):', err);
                         if (DEBUG) console.dir({
                             action: 'awaitCallMethod(errorPrimitive)',
                             error: err
@@ -1949,6 +1981,7 @@
                 });
                 return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
+                console.error('JS OOP Error in awaitCallMethod:', err);
                 if (DEBUG) console.dir({
                     action: 'awaitCallMethod(error)',
                     error: err
@@ -1984,6 +2017,7 @@
                         });
                         return;
                     } catch (err) {
+                        console.error('JS OOP Error in runMethod (primitive):', err);
                         if (DEBUG) console.dir({
                             action: 'runMethod(errorPrimitive)',
                             error: err
@@ -2005,6 +2039,7 @@
                         action: 'runMethod(done'
                     });
                 } catch (err) {
+                    console.error('JS OOP Error in runMethod:', err);
                     if (DEBUG) console.dir({
                         action: 'runMethod(error)',
                         error: err
@@ -2050,6 +2085,7 @@
 
                 return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
+                console.error('JS OOP Error in callFunction:', err);
                 if (DEBUG) console.dir({
                     action: 'callFunction(error)',
                     error: err
@@ -2097,6 +2133,7 @@
                 //const wrappedResult = JSObject.toType(result);
                 return this._wrapForOtherExtensions(this._convertResultToJwArray(this._convertToNativeValue(result)));
             } catch (err) {
+                console.error('JS OOP Error in awaitCallFunction:', err);
                 if (DEBUG) console.dir({
                     action: 'awaitCallFunction(error)',
                     error: err
@@ -2137,6 +2174,7 @@
                     action: 'runFunction(done)'
                 });
             } catch (err) {
+                console.error('JS OOP Error in runFunction:', err);
                 if (DEBUG) console.dir({
                     action: 'runFunction(error)',
                     error: err
@@ -2178,6 +2216,7 @@
                     action: 'awaitRunFunction(done)'
                 });
             } catch (err) {
+                console.error('JS OOP Error in awaitRunFunction:', err);
                 if (DEBUG) console.dir({
                     action: 'awaitRunFunction(error)',
                     error: err
@@ -2214,6 +2253,7 @@
                         });
                         return;
                     } catch (err) {
+                        console.error('JS OOP Error in awaitRunMethod (primitive):', err);
                         if (DEBUG) console.dir({
                             action: 'awaitRunMethod(errorPrimitive)',
                             error: err
@@ -2238,6 +2278,7 @@
                         action: 'awaitRunMethod(done)'
                     });
                 } catch (err) {
+                    console.error('JS OOP Error in awaitRunMethod:', err);
                     if (DEBUG) console.dir({
                         action: 'awaitRunMethod(error)',
                         error: err
@@ -2270,6 +2311,7 @@
                 });
                 return this._getActualValue(this._convertToNativeValue(val));
             } catch (err) {
+                console.error('JS OOP Error in getProp:', err);
                 if (DEBUG) console.dir({
                     action: 'getProp(error)',
                     error: err
@@ -2315,6 +2357,7 @@
                     target: INSTANCE.value
                 });
             } catch (err) {
+                console.error('JS OOP Error in setPropString:', err);
                 if (DEBUG) console.dir({
                     action: 'setPropString(error)',
                     error: err
@@ -2349,6 +2392,7 @@
                     target: INSTANCE.value
                 });
             } catch (err) {
+                console.error('JS OOP Error in setPropJSObject:', err);
                 if (DEBUG) console.dir({
                     action: 'setPropJSObject(error)',
                     error: err
@@ -2383,6 +2427,7 @@
                     target: INSTANCE.value
                 });
             } catch (err) {
+                console.error('JS OOP Error in setPropJwArray:', err);
                 if (DEBUG) console.dir({
                     action: 'setPropJwArray(error)',
                     error: err
@@ -2417,6 +2462,7 @@
                     target: INSTANCE.value
                 });
             } catch (err) {
+                console.error('JS OOP Error in setPropDogeiscutObject:', err);
                 if (DEBUG) console.dir({
                     action: 'setPropDogeiscutObject(error)',
                     error: err
@@ -2446,6 +2492,7 @@
                     return String(inner);
                 }
             } catch (err) {
+                console.error('JS OOP Error in stringify:', err);
                 if (DEBUG) console.dir({
                     action: 'stringify(error)',
                     error: err
