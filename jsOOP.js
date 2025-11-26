@@ -1530,7 +1530,7 @@
             if (jwArrayObj instanceof jwArray.Type) {
                 return jwArrayObj.array.map(item => {
                     // Resolve any JSObject references in the array
-                    return this._getActualValue(item);
+                    return this._convertToNativeValue(item);
                 });
             }
             return [];
